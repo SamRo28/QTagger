@@ -55,3 +55,28 @@ def test_whole_pipeline_on_mini_configuration(repo_root: Path, tmp_path: Path) -
     checks = write_dataset_report(config, load_splits_config(splits_yaml, dataset=config)).checks
     failing = [check.name for check in checks if not check.ok]
     assert failing == ["raw: filas sin QASM o QPY"]
+
+
+@pytest.mark.slow
+def test_measurement_on_the_mini_dataset(repo_root: Path, tmp_path: Path) -> None:
+    """``qcclass medir`` on CPU (1 epoch) over the real reduced dataset writes its JSON."""
+    import json
+
+    import pandas as pd
+
+    dataset_yaml, splits_yaml = _mini_configs(repo_root, tmp_path)
+    runner = CliRunner()
+    args = ["todo", "--config", str(dataset_yaml), "--splits", str(splits_yaml), "--procesos", "2"]
+    assert runner.invoke(app, args).exit_code == 0
+    config = load_dataset_config(dataset_yaml)
+    index = pd.read_csv(config.rutas.graphs / "dag" / "indice.csv")
+    assert list(index.columns) == ["id", "n_nodos"]  # written by the formats step
+    versioned = runner.invoke(app, ["versionar", "--config", str(dataset_yaml), "--nombre", "m"])
+    assert versioned.exit_code == 0, versioned.output
+    measure = ["medir", "--config", str(dataset_yaml), "--dispositivo", "cpu", "--epocas", "1"]
+    result = runner.invoke(app, [*measure, "--equipo", "ci"])
+    assert result.exit_code == 0, result.output
+    stored = json.loads((config.rutas.resultados / "medicion" / "ci_cpu.json").read_text())
+    assert stored["version_dataset"] == "m" and stored["epocas"][0]["lotes"] > 0
+    assert stored["proyeccion"]["fuente"] == "epoca_1"
+    assert not (config.rutas.resultados / "accesos_test.log").exists()

@@ -21,6 +21,7 @@ dependencies = [
     "torch",
     "torch-geometric",
     "tqdm",
+    "psutil",  # RAM measurements (qcclass medir)
     "typer",
     "matplotlib",  # notebooks and figures
     "pylatexenc",  # Qiskit "mpl" circuit drawer

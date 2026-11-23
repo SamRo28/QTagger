@@ -157,10 +157,12 @@ def circuit_formats(
     return CircuitFormats(row["id"], features, tokens.tokens(gates), dag.num_nodes)
 
 
-def _write_index(directory: Path, ids: list[str]) -> int:
-    """Write ``indice.csv`` and delete graph files not listed in it; return files removed."""
+def _write_index(directory: Path, ids: list[str], nodes: list[int] | None = None) -> int:
+    """Write ``indice.csv`` (with the ``n_nodos`` column when ``nodes`` is given) and delete
+    graph files not listed in it; return files removed."""
     directory.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame({"id": ids}).to_csv(directory / grafo_dag.INDEX_FILE, index=False)
+    columns = {"id": ids} if nodes is None else {"id": ids, "n_nodos": nodes}
+    pd.DataFrame(columns).to_csv(directory / grafo_dag.INDEX_FILE, index=False)
     keep = {f"{circuit_id}.pt" for circuit_id in ids}
     stale = [path for path in directory.glob("*.pt") if path.name not in keep]
     for path in stale:
@@ -182,7 +184,8 @@ def _write_outputs(
     write_text_atomic("\n".join(lines) + "\n", config.rutas.tokens / TOKENS_FILE)
     counts = tokens.vocabulary(r.tokens for r in results)
     write_text_atomic(json.dumps(counts), config.rutas.tokens / TOKEN_VOCABULARY_FILE)
-    removed = sum(_write_index(config.rutas.graphs / d, ids) for d in (DAG_DIR, QUBIT_DIR))
+    removed = _write_index(config.rutas.graphs / DAG_DIR, ids, [r.nodes for r in results])
+    removed += _write_index(config.rutas.graphs / QUBIT_DIR, ids)
     labels = vocabulary.as_json()
     write_text_atomic(
         json.dumps(labels, ensure_ascii=False, indent=2),

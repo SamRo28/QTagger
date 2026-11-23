@@ -109,6 +109,18 @@ Registro vivo de cómo se trabaja en este repositorio y de las decisiones que se
 | 2026-11-23 | — | Etiqueta git `dataset-v1` y `data/VERSION.json` (excepción en `.gitignore`; ruta en `rutas.version`) | Fijar los datos exactos sobre los que se entrenan y evalúan los modelos | Versionar los datos completos en git |
 | 2026-11-23 | — | Acceso a particiones centralizado en `split_ids`; `--evaluar-test` obligatorio para test, con registro; sin versión coincidente no se lee ninguna partición | Evitar mirar test por accidente y dejar rastro de cada evaluación | Confiar en la disciplina |
 | 2026-11-23 | — | `VERSION.json` guarda las versiones de Qiskit y MQT Bench; todo experimento arranca con `begin_experiment`, que compara las huellas y aborta si difieren. Una librería distinta solo avisa | Los experimentos leen los circuitos guardados y no los regeneran: otra versión de Qiskit no cambia los datos, pero conviene saberlo. La huella global se recalcula para detectar un `VERSION.json` editado a mano | Abortar también si cambia una librería |
+| 2026-11-23 | M | Medición solo sobre train de `aleatorio` sin variantes `solo_evaluacion`; `qcclass medir` no lee val ni test y arranca con `begin_experiment` | La fase mide coste, no calidad | — |
+| 2026-11-23 | M | `n_nodos` en `data/graphs/dag/indice.csv`: lo escribe el paso `formatos` y, si falta en un índice antiguo, `graph_sizes` lo calcula una vez y lo añade. `indice.csv` no entra en la huella, así que `dataset-v1` no cambia | Lotes por presupuesto sin cargar los grafos; es el único cambio en `data/` (pedido expresamente) | Usar `n_puertas` de `metadata.csv` |
+| 2026-11-23 | M | `NodeBudgetBatchSampler` propio, equivalente a `DynamicBatchSampler` en modo `node` con `skip_too_big=False`: voraz sobre un orden barajado con semilla `semilla + época`; un grafo mayor que el presupuesto va solo | El de PyG carga cada grafo para saber su tamaño | `DynamicBatchSampler` |
+| 2026-11-23 | M | Pérdida en float32 aunque haya AMP; un lote sin ninguna etiqueta de algoritmo (solo `-1`) aporta 0 a ese término; un `-2` lanza un error (además se filtran antes) | Con `ignore_index` y todo ignorado la entropía cruzada da NaN | — |
+| 2026-11-23 | M | Tiempos con `synchronize` del dispositivo tras cada paso; la espera de datos incluye crear el iterador (arranque de workers); la RAM se mide del proceso y del proceso más sus workers | Tiempos de GPU asíncronos serían falsos; los workers consumen RAM aparte | — |
+| 2026-11-23 | M | En MPS la memoria máxima es el máximo de `torch.mps.driver_allocated_memory()` muestreado tras cada paso | MPS no ofrece un pico como `max_memory_allocated`; puede no ver un pico dentro de un paso | — |
+| 2026-11-23 | M | `PYTORCH_ENABLE_MPS_FALLBACK=1` se fija en `qcclass medir` antes de importar torch; las operaciones que caen a CPU se leen de los avisos de torch | La variable se lee al cargar torch | — |
+| 2026-11-23 | M | Barrido: modelo nuevo por presupuesto y 50 lotes recorriendo épocas seguidas si hacen falta (400 000 × 50 = 20 M nodos > 6,9 M por época) | Comparar presupuestos en igualdad | — |
+| 2026-11-23 | M | Proyección con los nodos/s de la última época (la 2.ª por defecto) y los nodos de una época completa de train; Optuna = intentos × 5 bloques × 100 épocas, cada bloque con 4/5 de train; no incluye validación | Supuestos explícitos en el JSON (`proyeccion.supuestos`) | — |
+| 2026-11-23 | M | Nombre del equipo: nombre de host por defecto; en los comandos se usa `--equipo` (`m3pro`, `rtx3060`, `colab`) | Nombres legibles en la tabla y sin datos personales del host en git | — |
+| 2026-11-23 | M | `results/medicion/` versionado en git (`/results/*` + `!/results/medicion/`) | Comparar equipos y conservar la medición | — |
+| 2026-11-23 | M | Linux/WSL2: sin lock aparte. El wheel de torch 2.15.0 de PyPI para Linux x86_64 es el de CUDA 13.2 y fija sus dependencias `nvidia-*`/`cuda-toolkit`; requiere driver NVIDIA ≥ 580 en Windows | Comprobado leyendo los metadatos del wheel; el índice de PyTorch solo ofrece cu132 para 2.15.0 | Lock específico de CUDA |
 
 ## Avisos pendientes
 
@@ -134,4 +146,9 @@ Registro vivo de cómo se trabaja en este repositorio y de las decisiones que se
 - **Anchura de los circuitos `mapped`.** Tras quitar los cúbits inactivos, un circuito
   `mapped` conserva los cúbits físicos que usa el rutado, que pueden ser más que los lógicos
   (hasta 55 en `graphstate`). F3/F4/F5 ven esa anchura física; los protocolos usan la lógica.
-
+- **Simon con 0 puertas.** Hay circuitos `simon` cuyo canónico queda vacío (uno en train
+  `alg`, uno en train `mapped` y uno en test `alg` en `aleatorio`). El modelo los admite
+  (pooling con `size=`), pero conviene revisar si deben excluirse en la etapa de modelos.
+- **MPS más lento que la CPU en la prueba corta.** Con 10 lotes, MPS dio unos 224 000
+  nodos/s y la CPU del M3 Pro unos 800 000 (5 lotes, 2 workers). Pendiente de confirmar con
+  la medición completa.

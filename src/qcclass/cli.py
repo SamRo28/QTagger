@@ -350,35 +350,16 @@ def todo(
         step()
 
 
-@app.command()
-def versionar(
-    config: ConfigOption = DEFAULT_DATASET_CONFIG,
-    nombre: Annotated[
-        str | None, typer.Option(help="Version name to record, e.g. dataset-v1.")
-    ] = None,
-    comprobar: Annotated[
-        bool, typer.Option("--comprobar", help="Only check the files against VERSION.json.")
-    ] = False,
-) -> None:
-    """Record (``--nombre``) or check (``--comprobar``) the dataset version."""
+def _check_version(dataset: "DatasetConfig") -> None:
+    """Print whether the data match ``VERSION.json``; exit with code 1 if they do not."""
     from qcclass.versionado import (
         VersionError,
         library_differences,
         read_version,
         version_differences,
-        write_version,
     )
 
-    dataset = _load_dataset_config(config)
-    if comprobar == (nombre is not None):
-        raise typer.BadParameter("use exactly one of --nombre or --comprobar")
     try:
-        if nombre is not None:
-            version = write_version(dataset, nombre)
-            typer.echo(
-                f"Version {version.nombre}: {version.huella} ({len(version.archivos)} files)"
-            )
-            return
         version = read_version(dataset)
         differences = version_differences(dataset)
         libraries = library_differences(dataset)
@@ -393,3 +374,152 @@ def versionar(
     typer.echo(f"Dataset matches {version.nombre} ({version.huella[:12]})")
     for difference in libraries:
         typer.echo(f"  warning, generator library differs: {difference}")
+
+
+@app.command()
+def versionar(
+    config: ConfigOption = DEFAULT_DATASET_CONFIG,
+    nombre: Annotated[
+        str | None, typer.Option(help="Version name to record, e.g. dataset-v1.")
+    ] = None,
+    comprobar: Annotated[
+        bool, typer.Option("--comprobar", help="Only check the files against VERSION.json.")
+    ] = False,
+) -> None:
+    """Record (``--nombre``) or check (``--comprobar``) the dataset version."""
+    from qcclass.versionado import VersionError, write_version
+
+    dataset = _load_dataset_config(config)
+    if comprobar == (nombre is not None):
+        raise typer.BadParameter("use exactly one of --nombre or --comprobar")
+    if nombre is None:
+        _check_version(dataset)
+        return
+    try:
+        version = write_version(dataset, nombre)
+    except VersionError as exc:
+        typer.echo(f"Version error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"Version {version.nombre}: {version.huella} ({len(version.archivos)} files)")
+
+
+@app.command()
+def verificar(config: ConfigOption = DEFAULT_DATASET_CONFIG) -> None:
+    """Check the fingerprints of the data against VERSION.json and name any failing file."""
+    _check_version(_load_dataset_config(config))
+
+
+@app.command()
+def medir(
+    config: ConfigOption = DEFAULT_DATASET_CONFIG,
+    dispositivo: Annotated[
+        str, typer.Option(help="auto, cuda, mps or cpu (auto: cuda > mps > cpu).")
+    ] = "auto",
+    presupuesto_nodos: Annotated[int, typer.Option(help="Maximum nodes per batch.")] = 100_000,
+    epocas: Annotated[int, typer.Option(help="Measured epochs (0: none).", min=0)] = 2,
+    max_lotes: Annotated[
+        int | None, typer.Option(help="Batches per epoch at most (quick runs).", min=1)
+    ] = None,
+    num_workers: Annotated[int, typer.Option(help="DataLoader worker processes.", min=0)] = 0,
+    amp: Annotated[bool, typer.Option("--amp", help="Mixed precision (CUDA only).")] = False,
+    dim: Annotated[int, typer.Option(help="Hidden width of the reference model.", min=1)] = 64,
+    capas: Annotated[int, typer.Option(help="GINEConv layers.", min=1)] = 3,
+    barrido: Annotated[
+        bool, typer.Option("--barrido", help="Also sweep 50k-400k node budgets (50 batches).")
+    ] = False,
+    resumen: Annotated[
+        bool, typer.Option("--resumen", help="Only gather the JSON files into RESUMEN.md.")
+    ] = False,
+    equipo: Annotated[
+        str | None, typer.Option(help="Machine name in the file name (default: host name).")
+    ] = None,
+) -> None:
+    """Measure the training cost of the reference GNN on this machine (train set only)."""
+    import os
+    import sys
+
+    dataset = _load_dataset_config(config)
+    if resumen:
+        from qcclass.medicion.medir import MEASUREMENT_DIR, SUMMARY_FILE
+        from qcclass.medicion.resumen import write_summary
+
+        try:
+            path = write_summary(dataset.rutas.resultados / MEASUREMENT_DIR, SUMMARY_FILE)
+        except FileNotFoundError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
+        typer.echo(f"Summary written to {path}")
+        return
+    # read by torch when it loads: set it before the first import of torch
+    torch_loaded = "torch" in sys.modules
+    os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+    from qcclass.medicion.equipo import resolve_device
+    from qcclass.medicion.medir import MeasurementOptions, run_measurement
+    from qcclass.versionado import VersionError
+
+    try:
+        device = resolve_device(dispositivo)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    if amp and device != "cuda":
+        raise typer.BadParameter("--amp is only available on CUDA")
+    options = MeasurementOptions(
+        dispositivo=dispositivo,
+        presupuesto_nodos=presupuesto_nodos,
+        epocas=epocas,
+        max_lotes=max_lotes,
+        num_workers=num_workers,
+        amp=amp,
+        dim=dim,
+        capas=capas,
+        barrido=barrido,
+        equipo=equipo,
+    )
+    fallback = {
+        "PYTORCH_ENABLE_MPS_FALLBACK": os.environ["PYTORCH_ENABLE_MPS_FALLBACK"],
+        "torch_importado_antes": torch_loaded,
+    }
+    typer.echo(f"Device: {device}")
+    try:
+        path, result = run_measurement(
+            dataset,
+            options,
+            device=device,
+            mps_fallback=fallback,
+            on_model=lambda n: typer.echo(f"Reference model: {n:,} parameters"),
+        )
+    except VersionError as exc:
+        typer.echo(f"Dataset does not match its version, measurement aborted: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    _print_measurement(result)
+    typer.echo(f"Result written to {path}")
+
+
+def _print_measurement(result: dict) -> None:
+    """Short console summary of a measurement."""
+    worst = result["peor_caso"]
+    state = "ok" if worst["ok"] else "OUT OF MEMORY"
+    typer.echo(f"Worst case ({worst['n_nodos']:,} nodes): {state}")
+    for epoch in result["epocas"]:
+        typer.echo(
+            f"Epoch {epoch['epoca']}: {epoch['tiempo_total_s']:.1f} s "
+            f"(data {epoch['tiempo_datos_s']:.1f} s, compute {epoch['tiempo_computo_s']:.1f} s), "
+            f"{epoch['lotes']} batches, {epoch['nodos_s']:,.0f} nodes/s, "
+            f"{epoch['grafos_s']:,.1f} graphs/s, loss {epoch['perdida_media']:.4f}"
+        )
+    if result["mps_fallback"] is not None:
+        ops = result["mps_fallback"]["operaciones_cpu"]
+        typer.echo(f"MPS ops falling back to CPU: {', '.join(ops) if ops else 'none'}")
+    if projection := result["proyeccion"]:
+        full = projection["entrenamiento_completo_h"]
+        optuna = projection["optuna_h"]
+        typer.echo(
+            "Projection ("
+            + projection["fuente"]
+            + "): "
+            + ", ".join(f"{e} epochs {h} h" for e, h in full.items())
+            + "; Optuna "
+            + ", ".join(f"{t} trials {h} h" for t, h in optuna.items())
+        )
+    if sweep := result["barrido"]:
+        typer.echo(f"Largest working budget: {sweep['mayor_presupuesto_ok']}")

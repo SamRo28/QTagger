@@ -29,6 +29,37 @@ source .venv/bin/activate
 `requirements.lock` pins every dependency version; regenerate it with `make lock` after changing
 dependencies in `pyproject.toml`.
 
+### Linux / WSL2 with an NVIDIA GPU
+
+No separate lock is needed: on Linux x86_64 the pinned `torch==2.15.0` wheel from PyPI is the
+CUDA 13.2 build, and it pins its own `nvidia-*` / `cuda-toolkit` dependencies. CUDA 13
+requires an NVIDIA driver **580 or newer**. On WSL2 the driver is the Windows one: update it
+on Windows and do not install any NVIDIA driver inside Linux.
+
+```bash
+nvidia-smi                       # inside WSL2: driver >= 580, "CUDA Version: 13.x"
+# Python 3.13 (any distribution) with uv; or apt install python3.13 python3.13-venv
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv python install 3.13
+# keep the repository and the data on the Linux file system (~/), not on /mnt/c: reading
+# thousands of small graph files through /mnt/c is much slower
+git clone git@github.com:SamRo28/QTagger.git ~/QTagger && cd ~/QTagger
+make install PYTHON_BOOTSTRAP="$(uv python find 3.13)"
+source .venv/bin/activate
+python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
+```
+
+The dataset is not in git. Copy it from the machine that generated it instead of
+regenerating it (floating-point differences between platforms could change the files and
+therefore the fingerprint):
+
+```bash
+# on the machine with the data
+COPYFILE_DISABLE=1 tar czf data.tgz data/metadata.csv data/splits data/graphs/dag data/graphs/etiquetas.json
+# on the target machine, in the repository root
+tar xzf data.tgz && qcclass verificar
+```
+
 ## Regenerating the dataset
 
 The whole dataset is generated from the `mqt.bench` package and the configuration in `configs/`;
@@ -45,7 +76,7 @@ Reports are written to `results/`: `informe_deduplicacion.md`, `informe_particio
 files on disk). Decisions that refine `PLAN.md` are logged in `docs/DECISIONES.md`.
 
 Individual steps are available as subcommands (`qcclass --help`): `generar`, `oraculos`,
-`normalizar`, `deduplicar`, `formatos`, `particiones`, `calidad`.
+`normalizar`, `deduplicar`, `formatos`, `particiones`, `calidad`, `versionar`, `verificar`.
 
 `make clean-data` deletes every generated file under `data/`.
 
@@ -53,6 +84,22 @@ The dataset version is recorded in `data/VERSION.json` (git tag `dataset-v1`), t
 the Qiskit and MQT Bench versions that generated it, and checked with
 `qcclass versionar --comprobar`; every experiment compares the fingerprints when it starts. Test sets can only be read with `--evaluar-test`; every
 access is logged in `results/accesos_test.log`.
+
+## Measuring training cost
+
+`qcclass medir` trains a reference GNN (GINEConv, `src/qcclass/modelos/referencia.py`) on the
+train set of the `aleatorio` protocol only, with batches limited by a node budget, and writes
+`results/medicion/<machine>_<device>[_amp].json` (machine description, worst-case pass, per
+epoch timings, throughput, loss, memory, temperature and a projection of training and Optuna
+hours). `results/medicion/` is versioned in git.
+
+```bash
+qcclass verificar                                    # data fingerprints vs data/VERSION.json
+qcclass medir --dispositivo mps --equipo m3pro       # --amp, --barrido, --max-lotes, --num-workers...
+qcclass medir --resumen                              # results/medicion/RESUMEN.md
+```
+
+`notebooks/medicion_colab.ipynb` runs the same measurement on Google Colab.
 
 ## Development
 

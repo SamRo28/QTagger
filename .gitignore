@@ -4,8 +4,9 @@
 !/data/README.md
 !/data/VERSION.json
 
-# Experiment outputs and reports
-/results/
+# Experiment outputs and reports (performance measurements are versioned)
+/results/*
+!/results/medicion/
 
 # Reduced dataset (configs/dataset_mini.yaml)
 /data_mini/
