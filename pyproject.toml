@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qcclass"
+version = "0.1.0"
+description = "Dataset generation for classifying flattened quantum circuits by the algorithm they implement."
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "qiskit",
+    "qiskit-qasm3-import",
+    "mqt.bench>=2,<3",
+    "numpy",
+    "pandas",
+    "pyarrow",  # required by pandas to write the F3 Parquet file
+    "pyyaml",
+    "networkx",
+    "scikit-learn",
+    "torch",
+    "torch-geometric",
+    "tqdm",
+    "typer",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[project.scripts]
+qcclass = "qcclass.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["slow: long-running integration tests (deselect with -m 'not slow')"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+extend-exclude = ["notebooks"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP"]

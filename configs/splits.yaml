@@ -1,0 +1,8 @@
+# Split protocols. Every protocol is created once with this seed and is not regenerated
+# unless explicitly forced.
+
+semilla: 42
+aleatorio: {train: 0.70, val: 0.15, test: 0.15}        # fractions of group_id, must sum to 1
+por_tamano: {train: [3, 16], val: [17, 20], test: [21, 30]}  # inclusive qubit ranges, disjoint
+algoritmos_reservados: [simon, qwalk, hhl]   # never seen in training
+minimo_por_clase_train: 300

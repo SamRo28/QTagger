@@ -1,0 +1,58 @@
+# Dataset generation configuration.
+# Benchmark, level, gateset and device names are validated against the installed mqt.bench
+# (see qcclass.config); unknown names make loading fail.
+
+semilla_global: 42
+tamanos: {min: 2, max: 40}              # circuit sizes in qubits, inclusive
+niveles: [alg, indep, nativegates, mapped]
+nativegates: {gateset: ibm_heron}       # mqt.bench 2.4.0 has no ibm_falcon; Heron natives: rz, sx, x, cz
+mapped: {dispositivo: ibm_heron_156}    # 156-qubit heavy-hex device, covers the whole size range
+opt_level: 2
+variantes_compilacion: 3                # distinct transpiler seeds per base circuit (alg/indep only)
+variantes_parametros: 5                 # random parameter instances (variational benchmarks only)
+max_nodos: 20000                        # discard circuits with more gates
+
+familias:
+  oraculos: [dj, bv, simon, grover]
+  qft_fase: [qft, qftentangled, qpeexact, qpeinexact, ae, hhl]
+  aritmetica: [cdkm_ripple_carry_adder, vbe_ripple_carry_adder, draper_qft_adder,
+               modular_adder, multiplier, hrs_cumulative_multiplier, rg_qft_multiplier,
+               full_adder, half_adder]
+  variacionales: [qaoa, vqe_real_amp, vqe_su2, vqe_two_local, qnn,
+                  bmw_quark_cardinality, bmw_quark_copula]
+  preparacion_estados: [ghz, wstate, graphstate, bell]
+  simulacion: [qwalk]
+  protocolos: [superdense_coding]
+
+control_negativo: [randomcircuit]       # never a class; used as "unknown"
+
+# Benchmarks left out of the dataset (mqt.bench 2.4.0):
+excluidos:
+  # mid-circuit measurements, resets or classical control flow
+  - dynamic_qft
+  - ghz_dynamic
+  - iqpe
+  - mlqae
+  - quantum_metropolis
+  - seven_qubit_steane_code
+  - shors_nine_qubit_code
+  - teleportation
+  # only valid size in range is 18, with ~55k gates at nativegates (> max_nodos)
+  - shor
+
+variacionales_con_parametros: [qaoa, vqe_real_amp, vqe_su2, vqe_two_local, qnn]
+
+# Dataset locations. `raiz` is relative to this file's directory; every other entry is
+# relative to `raiz` (absolute paths are used as they are).
+rutas:
+  raiz: ..
+  raw: data/raw
+  canonical: data/canonical
+  features: data/features
+  graphs: data/graphs
+  tokens: data/tokens
+  gate_labels: data/gate_labels
+  splits: data/splits
+  logs: data/logs
+  metadata: data/metadata.csv
+  resultados: results

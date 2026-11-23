@@ -1,0 +1,25 @@
+# Generated dataset: everything under the top-level data/ except its README.
+# Patterns are anchored with a leading slash so that src/qcclass/data/ is NOT ignored.
+/data/*
+!/data/README.md
+
+# Experiment outputs and reports
+/results/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Virtual environment
+.venv/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
