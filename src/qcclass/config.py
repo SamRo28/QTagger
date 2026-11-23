@@ -50,6 +50,7 @@ PATH_KEYS = (
     "splits",
     "logs",
     "metadata",
+    "version",
     "resultados",
 )
 SPLITS_KEYS = (
@@ -127,6 +128,7 @@ class PathsConfig:
     splits: Path
     logs: Path
     metadata: Path
+    version: Path
     resultados: Path
 
 

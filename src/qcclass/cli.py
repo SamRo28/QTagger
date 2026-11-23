@@ -27,6 +27,15 @@ app = typer.Typer(
 
 ConfigOption = Annotated[Path, typer.Option("--config", help="Dataset configuration file.")]
 SplitsOption = Annotated[Path, typer.Option("--splits", help="Split configuration file.")]
+# Every command that evaluates models must take this option and pass it to
+# ``qcclass.versionado.split_ids``: without it, the test sets cannot be read.
+EvaluarTestOption = Annotated[
+    bool,
+    typer.Option(
+        "--evaluar-test",
+        help="Allow reading the test sets (logged in results/accesos_test.log).",
+    ),
+]
 
 
 def _split_list(value: str | None) -> list[str] | None:
@@ -339,3 +348,39 @@ def todo(
     for number, (name, step) in enumerate(steps, start=1):
         typer.echo(f"\n=== [{number}/{len(steps)}] {name} ===")
         step()
+
+
+@app.command()
+def versionar(
+    config: ConfigOption = DEFAULT_DATASET_CONFIG,
+    nombre: Annotated[
+        str | None, typer.Option(help="Version name to record, e.g. dataset-v1.")
+    ] = None,
+    comprobar: Annotated[
+        bool, typer.Option("--comprobar", help="Only check the files against VERSION.json.")
+    ] = False,
+) -> None:
+    """Record (``--nombre``) or check (``--comprobar``) the dataset version."""
+    from qcclass.versionado import VersionError, read_version, version_differences, write_version
+
+    dataset = _load_dataset_config(config)
+    if comprobar == (nombre is not None):
+        raise typer.BadParameter("use exactly one of --nombre or --comprobar")
+    try:
+        if nombre is not None:
+            version = write_version(dataset, nombre)
+            typer.echo(
+                f"Version {version.nombre}: {version.huella} ({len(version.archivos)} files)"
+            )
+            return
+        version = read_version(dataset)
+        differences = version_differences(dataset)
+    except VersionError as exc:
+        typer.echo(f"Version error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if differences:
+        typer.echo(f"Dataset does NOT match {version.nombre}:")
+        for difference in differences:
+            typer.echo(f"  {difference}")
+        raise typer.Exit(code=1)
+    typer.echo(f"Dataset matches {version.nombre} ({version.huella[:12]})")

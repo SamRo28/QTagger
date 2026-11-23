@@ -13,6 +13,7 @@ SUBCOMMANDS = [
     "particiones",
     "calidad",
     "todo",
+    "versionar",
 ]
 
 

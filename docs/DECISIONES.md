@@ -29,6 +29,14 @@ Registro vivo de cómo se trabaja en este repositorio y de las decisiones que se
 - **Reproducibilidad.** Python 3.13, versiones fijadas en `requirements.lock`
   (`make install` instala con ellas como restricciones). La generación es incremental e
   idempotente; `--forzar` regenera.
+- **Versión del dataset.** `data/VERSION.json` (versionado en git, etiqueta `dataset-v1`)
+  guarda el SHA-256 de `metadata.csv`, de cada CSV de `data/splits/` y de
+  `data/graphs/etiquetas.json`, más una huella global. Todo resultado desde `dataset-v1`
+  guarda `qcclass.versionado.version_stamp()` (nombre y huella), que falla si los datos no
+  coinciden con la versión. `qcclass versionar --comprobar` lo verifica.
+- **Test protegido.** Las particiones solo se leen con `qcclass.versionado.split_ids`: pedir
+  `test` sin `--evaluar-test` lanza `LockedTestSetError`; cada acceso permitido añade una
+  línea a `results/accesos_test.log` (fecha, experimento, versión, huella, protocolo).
 - **Idioma.** Carpetas y scripts en español sin tildes ni eñes; código, comentarios y
   documentación técnica en inglés. Este archivo está en español por ser el registro de
   trabajo con el responsable del proyecto.
@@ -95,6 +103,8 @@ Registro vivo de cómo se trabaja en este repositorio y de las decisiones que se
 | 2026-11-23 | 8 | Coherencia: filas sin QASM/QPY, archivos sin fila, índices de F4/F5 frente a metadatos y a los `.pt`, F3/F6/F7 frente a metadatos, ids de particiones sin formatos y grupos en más de un conjunto | La fuga de `por_tamano` mostró que esta comprobación debe ser permanente | — |
 | 2026-11-23 | 8 | `configs/dataset_mini.yaml` + `splits_mini.yaml` (dj, grover, qft, ghz y randomcircuit, 3–8 cúbits) escriben en `data_mini/` y `results_mini/`; `make dataset-mini` y una prueba `slow` ejecutan el pipeline completo | No tocar el dataset completo al probar | — |
 | 2026-11-23 | 8 | `oraculos` sin `--algoritmos` genera solo los algoritmos de oráculo que son clases de la configuración | La configuración reducida no tiene bv ni simon | Error si falta alguno |
+| 2026-11-23 | — | Etiqueta git `dataset-v1` y `data/VERSION.json` (excepción en `.gitignore`; ruta en `rutas.version`) | Fijar los datos exactos sobre los que se entrenan y evalúan los modelos | Versionar los datos completos en git |
+| 2026-11-23 | — | Acceso a particiones centralizado en `split_ids`; `--evaluar-test` obligatorio para test, con registro; sin versión coincidente no se lee ninguna partición | Evitar mirar test por accidente y dejar rastro de cada evaluación | Confiar en la disciplina |
 
 ## Avisos pendientes
 

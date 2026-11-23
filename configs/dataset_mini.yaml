@@ -43,4 +43,5 @@ rutas:
   splits: data_mini/splits
   logs: data_mini/logs
   metadata: data_mini/metadata.csv
+  version: data_mini/VERSION.json        # dataset version (hashes), versioned in git
   resultados: results_mini

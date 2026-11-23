@@ -49,6 +49,10 @@ Individual steps are available as subcommands (`qcclass --help`): `generar`, `or
 
 `make clean-data` deletes every generated file under `data/`.
 
+The dataset version is recorded in `data/VERSION.json` (git tag `dataset-v1`) and checked
+with `qcclass versionar --comprobar`. Test sets can only be read with `--evaluar-test`; every
+access is logged in `results/accesos_test.log`.
+
 ## Development
 
 ```bash

@@ -78,4 +78,5 @@ rutas:
   splits: data/splits
   logs: data/logs
   metadata: data/metadata.csv
+  version: data/VERSION.json        # dataset version (hashes), versioned in git
   resultados: results
