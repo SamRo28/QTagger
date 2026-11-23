@@ -7,11 +7,13 @@ Two fingerprints are computed per canonical circuit:
 * ``huella_wl``: Weisfeiler-Lehman hash of the gate DAG with the gate type as node
   attribute (structural identity: ignores angles and qubit labels).
 
-Only exact (SHA) duplicates are excluded: within a group of identical texts with a single
-label, every circuit but a representative gets ``duplicado_de``. Groups whose circuits have
-different labels are never marked; they are listed in ``duplicados_conflictivos.csv`` for
-manual review (``tipo = exacto``), together with structural (WL) groups that mix labels
-(``tipo = estructural``), which are only reported.
+Labels are the training classes: algorithm names after ``etiquetas.fusiones``, or
+``familia:<family>`` for algorithms that only keep their family label. Only exact (SHA)
+matches exclude circuits: within a group of identical texts with a single label, every
+circuit but a representative gets ``duplicado_de``; groups whose circuits have different
+labels are excluded entirely (from every class involved) and listed in
+``duplicados_conflictivos.csv`` (``tipo = exacto``), together with structural (WL) groups
+that mix labels (``tipo = estructural``), which are only reported.
 """
 
 import hashlib
@@ -36,9 +38,13 @@ from qcclass.paralelo import run_tasks
 logger = logging.getLogger(__name__)
 
 CONFLICTS_FILE_NAME = "duplicados_conflictivos.csv"
-CONFLICT_COLUMNS = ("tipo", "huella", "id", "algoritmo", "familia", "nivel", "n_qubits")
+CONFLICT_COLUMNS = ("tipo", "huella", "id", "etiqueta", "algoritmo", "familia", "nivel", "n_qubits")
 CONFLICT_EXACT = "exacto"
 CONFLICT_STRUCTURAL = "estructural"
+EXCLUDED_DUPLICATE = "duplicado"
+EXCLUDED_CONFLICT = "conflicto_etiquetas"
+FAMILY_LABEL_PREFIX = "familia:"
+LABELLED_VARIANT = "etiquetada"  # F7 variant (see qcclass.formatos.etiquetas_puerta)
 LEVEL_ORDER = {"alg": 0, "indep": 1, "nativegates": 2, "mapped": 3}
 _BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
 _LINE_COMMENT = re.compile(r"//[^\n]*")
@@ -115,25 +121,81 @@ def _representative_order(group: pd.DataFrame) -> pd.DataFrame:
 def mark_duplicates(canonical: pd.DataFrame) -> tuple[pd.Series, pd.DataFrame]:
     """Return ``duplicado_de`` per id and the conflict table.
 
-    ``canonical`` needs the columns ``id``, ``algoritmo``, ``familia``, ``nivel``,
-    ``n_qubits``, ``huella_sha`` and ``huella_wl``.
+    ``canonical`` needs the columns ``id``, ``etiqueta`` (training label), ``algoritmo``,
+    ``familia``, ``nivel``, ``n_qubits``, ``huella_sha`` and ``huella_wl``.
     """
     duplicate_of = pd.Series("", index=canonical["id"].to_numpy(), dtype=object)
     conflicts = []
     for sha, group in canonical.groupby("huella_sha", sort=True):
         if len(group) < 2:
             continue
-        if group["algoritmo"].nunique() > 1:
+        if group["etiqueta"].nunique() > 1:
             conflicts.append(group.assign(tipo=CONFLICT_EXACT, huella=sha))
             continue
         ordered = _representative_order(group)
         representative = ordered["id"].iloc[0]
         duplicate_of[ordered["id"].iloc[1:].to_numpy()] = representative
     for wl, group in canonical.groupby("huella_wl", sort=True):
-        if group["algoritmo"].nunique() > 1:
+        if group["etiqueta"].nunique() > 1:
             conflicts.append(group.assign(tipo=CONFLICT_STRUCTURAL, huella=wl))
     table = pd.concat(conflicts, ignore_index=True) if conflicts else pd.DataFrame()
     return duplicate_of, table.reindex(columns=list(CONFLICT_COLUMNS))
+
+
+# --------------------------------------------------------------------------------------------
+# Training labels
+# --------------------------------------------------------------------------------------------
+
+
+def merged_labels(config: DatasetConfig, algorithms: pd.Series) -> pd.Series:
+    """Algorithm names with ``etiquetas.fusiones`` applied."""
+    return algorithms.map(lambda name: config.etiquetas.fusiones.get(name, name))
+
+
+def family_label(family: str) -> str:
+    """Label of a circuit that only keeps its family."""
+    return f"{FAMILY_LABEL_PREFIX}{family}"
+
+
+def _family_only_algorithms(
+    config: DatasetConfig, canonical: pd.DataFrame, excluded: pd.Series
+) -> set[str]:
+    """Algorithms of ``clase_propia_con_minimo`` with too few unique base circuits."""
+    kept = canonical[~excluded]
+    bases = kept.groupby("algoritmo")["group_id"].nunique()
+    minimum = config.etiquetas.minimo_bases_clase_propia
+    return {a for a in config.etiquetas.clase_propia_con_minimo if bases.get(a, 0) < minimum}
+
+
+def _label_and_mark(
+    config: DatasetConfig, canonical: pd.DataFrame
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Assign labels and exclusions, iterating until the family-only set is stable."""
+    fixed = set(config.etiquetas.solo_familia)
+    family_only: set[str] = set()
+    for _ in range(len(config.etiquetas.clase_propia_con_minimo) + 1):
+        labels = merged_labels(config, canonical["algoritmo"])
+        demoted = canonical["algoritmo"].isin(list(family_only | fixed))
+        labels[demoted] = canonical.loc[demoted, "familia"].map(family_label)
+        canonical = canonical.assign(etiqueta=labels)
+        duplicate_of, conflicts = mark_duplicates(canonical)
+        conflicting = canonical["id"].isin(conflicts.loc[conflicts["tipo"] == CONFLICT_EXACT, "id"])
+        duplicated = canonical["id"].map(duplicate_of) != ""
+        updated = _family_only_algorithms(config, canonical, conflicting | duplicated)
+        if updated == family_only:
+            break
+        family_only = updated
+    exclusion = pd.Series("", index=canonical.index, dtype=object)
+    exclusion[duplicated] = EXCLUDED_DUPLICATE
+    exclusion[conflicting] = EXCLUDED_CONFLICT
+    labelled = canonical.assign(
+        clase=canonical["etiqueta"].where(
+            ~canonical["etiqueta"].str.startswith(FAMILY_LABEL_PREFIX), ""
+        ),
+        duplicado_de=canonical["id"].map(duplicate_of),
+        exclusion=exclusion,
+    ).drop(columns="etiqueta")
+    return labelled, conflicts
 
 
 @dataclass(frozen=True)
@@ -152,9 +214,18 @@ def conflicts_path(config: DatasetConfig) -> Path:
 def deduplicate(
     config: DatasetConfig, *, force: bool = False, processes: int = 1
 ) -> DeduplicationReport:
-    """Fingerprint every canonical circuit (cached in the metadata) and mark duplicates."""
+    """Fingerprint every canonical circuit (cached in the metadata), label and mark it.
+
+    Columns written: ``huella_sha``, ``huella_wl``, ``duplicado_de``, ``clase`` (training
+    label after merges; empty when only the family label is kept) and ``exclusion``
+    (``duplicado``, ``conflicto_etiquetas`` or empty). Exact duplicates with different
+    labels are excluded from both classes.
+    """
     metadata = read_table(config.rutas.metadata, METADATA_COLUMNS)
-    canonical = metadata[metadata["ruta_canonical"] != ""].copy()
+    # labelled F7 variants are auxiliary (never trained on): they keep their own exclusion
+    canonical = metadata[
+        (metadata["ruta_canonical"] != "") & (metadata["variante_comp"] != LABELLED_VARIANT)
+    ].copy()
     missing = canonical if force else canonical[canonical["huella_sha"] == ""]
     logger.info("fingerprinting %d of %d canonical circuits", len(missing), len(canonical))
     prints = run_tasks(
@@ -164,13 +235,12 @@ def deduplicate(
     has_new = canonical["id"].isin(list(by_id))
     canonical.loc[has_new, "huella_sha"] = canonical.loc[has_new, "id"].map(lambda i: by_id[i].sha)
     canonical.loc[has_new, "huella_wl"] = canonical.loc[has_new, "id"].map(lambda i: by_id[i].wl)
-    duplicate_of, conflicts = mark_duplicates(canonical)
-    canonical["duplicado_de"] = canonical["id"].map(duplicate_of)
+    canonical, conflicts = _label_and_mark(config, canonical)
     upsert(config.rutas.metadata, canonical, "id", METADATA_COLUMNS)
     write_table(conflicts, conflicts_path(config))
     logger.info(
-        "%d duplicates marked, %d circuits in conflicting groups",
-        int((canonical["duplicado_de"] != "").sum()),
-        len(conflicts),
+        "%d duplicates and %d label conflicts excluded",
+        int((canonical["exclusion"] == EXCLUDED_DUPLICATE).sum()),
+        int((canonical["exclusion"] == EXCLUDED_CONFLICT).sum()),
     )
     return DeduplicationReport(canonical=canonical, conflicts=conflicts)

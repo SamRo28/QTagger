@@ -26,6 +26,7 @@ METADATA_COLUMNS = (
     "ruta_raw",
     "oraculo_id",
     "construccion_mcx",
+    "tipo_oraculo_dj",
     "ruta_canonical",
     "opt_level_comp",
     "n_puertas",
@@ -33,6 +34,8 @@ METADATA_COLUMNS = (
     "huella_sha",
     "huella_wl",
     "duplicado_de",
+    "clase",
+    "exclusion",
 )
 
 

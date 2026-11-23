@@ -16,7 +16,7 @@ SUBCOMMANDS = [
     "todo",
 ]
 
-IMPLEMENTED = {"generar", "oraculos", "normalizar", "deduplicar"}
+IMPLEMENTED = {"generar", "oraculos", "normalizar", "deduplicar", "formatos", "particiones"}
 STUBS = [command for command in SUBCOMMANDS if command not in IMPLEMENTED]
 
 runner = CliRunner()

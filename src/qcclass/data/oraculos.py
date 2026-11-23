@@ -10,11 +10,14 @@ in oracle identifiers are written with qubit 0 first.
 
 Sizes (``n`` is always the total number of qubits, ancillas included):
 
-* ``dj``, ``bv``: ``n - 1`` input qubits and one output ancilla.
+* ``dj``: ``n - 1`` inputs and one output, except non-linear oracles with a product of
+  three variables, whose multi-controlled X may take one clean ancilla from the inputs.
+* ``bv``: ``n - 1`` input qubits and one output ancilla.
 * ``simon``: ``n / 2`` input and ``n / 2`` output qubits (``n`` even).
 * ``grover``: ``k`` search qubits plus the clean ancillas of its multi-controlled X, built
-  half of the time as a v-chain (``k - 3`` ancillas) and half with Maslov's construction
-  (``ceil((k - 3) / 2)``), so that neither the width nor a CCX ladder gives Grover away.
+  as a v-chain, with Maslov's construction (m15) or with Barenco's (b95), spread evenly
+  over the constructions that fit each size, so that neither the width nor a CCX ladder
+  gives Grover away.
 """
 
 import logging
@@ -22,13 +25,13 @@ import math
 import random
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from functools import partial
+from functools import cache, partial
 from pathlib import Path
 
 import pandas as pd
 from qiskit import ClassicalRegister, QuantumCircuit, QuantumRegister
 from qiskit.circuit import Gate
-from qiskit.synthesis import synth_mcx_n_clean_m15
+from qiskit.synthesis import synth_mcx_1_clean_b95, synth_mcx_n_clean_m15
 
 from qcclass.circuitos import canonical_gate_count, qpy_path, write_circuit
 from qcclass.config import DatasetConfig
@@ -57,12 +60,20 @@ BLOCK_DIFFUSER = "difusor"
 BLOCK_FINAL = "hadamard_final"
 BLOCK_MCX_VCHAIN = "mcx_vchain"
 BLOCK_MCX_M15 = "mcx_m15"
+BLOCK_MCX_B95 = "mcx_b95"
 
 # Multi-controlled X constructions used by Grover (``construccion_mcx`` metadata column).
 MCX_VCHAIN = "v-chain"  # Toffoli ladder, k - 2 clean ancillas
 MCX_M15 = "m15"  # Maslov 2016 (qiskit.synthesis.synth_mcx_n_clean_m15), ceil((k - 2) / 2)
-MCX_CONSTRUCTIONS = (MCX_VCHAIN, MCX_M15)
-MCX_DIRECT = "directa"  # <= 2 controls: a plain CX / CCX, both constructions coincide
+MCX_B95 = "b95"  # Barenco 1995 (qiskit.synthesis.synth_mcx_1_clean_b95), 0 or 1 ancilla
+MCX_CONSTRUCTIONS = (MCX_VCHAIN, MCX_M15, MCX_B95)
+MCX_DIRECT = "directa"  # <= 2 controls: a plain CX / CCX, every construction coincides
+
+# Deutsch-Jozsa oracle types (``tipo_oraculo_dj`` metadata column).
+DJ_CONSTANT = "constante"
+DJ_LINEAR = "lineal"
+DJ_NONLINEAR = "no_lineal"
+DJ_NONLINEAR_SHARE = 0.7  # of the balanced oracles
 
 
 class InvalidSizeError(ValueError):
@@ -76,6 +87,7 @@ class OracleCircuit:
     circuit: QuantumCircuit
     oracle_id: str
     mcx_construction: str = ""
+    dj_kind: str = ""
 
 
 # --------------------------------------------------------------------------------------------
@@ -137,20 +149,47 @@ def _mcx_vchain(num_controls: int) -> Gate:
     return _block(BLOCK_MCX_VCHAIN, num_controls + 1 + ancillas, build)
 
 
-def _mcx_m15(num_controls: int) -> Gate:
-    """Multi-controlled X from ``qiskit.synthesis.synth_mcx_n_clean_m15`` (Maslov 2016).
-
-    Same qubit order as :func:`_mcx_vchain` but with ``ceil((k - 2) / 2)`` clean ancillas and
-    relative-phase Toffolis (H, T, CX) instead of a CCX ladder.
-    """
-    synthesised = synth_mcx_n_clean_m15(num_controls)
-    synthesised.name = BLOCK_MCX_M15
-    return synthesised.to_gate()
+@cache
+def _synthesised_mcx(construction: str, num_controls: int) -> QuantumCircuit:
+    """Qiskit synthesis of a multi-controlled X (qubits: controls, target, clean ancillas)."""
+    synthesis = {MCX_M15: synth_mcx_n_clean_m15, MCX_B95: synth_mcx_1_clean_b95}[construction]
+    circuit = synthesis(num_controls)
+    circuit.name = {MCX_M15: BLOCK_MCX_M15, MCX_B95: BLOCK_MCX_B95}[construction]
+    return circuit
 
 
 def _mcx(construction: str, num_controls: int) -> Gate:
-    """Multi-controlled X block of the requested construction."""
-    return _mcx_vchain(num_controls) if construction == MCX_VCHAIN else _mcx_m15(num_controls)
+    """Multi-controlled X block of the requested construction.
+
+    * ``v-chain``: Toffoli ladder on ``k - 2`` clean ancillas (built here with CCX).
+    * ``m15``: ``qiskit.synthesis.synth_mcx_n_clean_m15`` (Maslov 2016), relative-phase
+      Toffolis on ``ceil((k - 2) / 2)`` clean ancillas.
+    * ``b95``: ``qiskit.synthesis.synth_mcx_1_clean_b95`` (Barenco 1995 / Iten 2016), one
+      clean ancilla for ``k >= 5`` and none for ``k <= 4``.
+    """
+    if construction == MCX_VCHAIN:
+        return _mcx_vchain(num_controls)
+    return _synthesised_mcx(construction, num_controls).to_gate()
+
+
+def mcx_ancillas(construction: str, num_controls: int) -> int:
+    """Clean ancillas used by a multi-controlled X construction (read from the synthesis)."""
+    if num_controls <= 2:
+        return 0
+    if construction == MCX_VCHAIN:
+        return num_controls - 2
+    return _synthesised_mcx(construction, num_controls).num_qubits - num_controls - 1
+
+
+def construction_plan(
+    config: DatasetConfig, algorithm: str, n: int, count: int, options: Sequence[str]
+) -> list[str]:
+    """Balanced, seeded assignment of MCX constructions to the ``count`` oracles of a size."""
+    ordered = sorted(options)
+    plan = [ordered[i % len(ordered)] for i in range(count)]
+    seed = derive_seed(config.semilla_global, "construccion_mcx", algorithm, n)
+    random.Random(seed).shuffle(plan)
+    return plan
 
 
 def _apply_mcz(block: QuantumCircuit, search: int, construction: str) -> None:
@@ -173,49 +212,130 @@ def _apply_mcz(block: QuantumCircuit, search: int, construction: str) -> None:
 # --------------------------------------------------------------------------------------------
 
 
-def _dj_oracle(rng: random.Random, inputs: int) -> tuple[str, Callable[[QuantumCircuit], None]]:
-    """Random constant (50 %) or balanced (50 %) oracle: identifier and gate builder.
+@dataclass(frozen=True)
+class _DjOracle:
+    """A Deutsch-Jozsa oracle on ``inputs`` input qubits, one output and ``ancillas`` ancillas."""
 
-    Balanced oracles compute the parity of a random non-empty subset ``S`` of the inputs,
-    with X gates wrapped around a random subset ``b`` of ``S``.
-    """
-    ancilla = inputs
-    if rng.random() < 0.5:
-        value = rng.randint(0, 1)
+    kind: str
+    oracle_id: str
+    inputs: int
+    ancillas: int
+    construction: str
+    build: Callable[[QuantumCircuit], None]
 
-        def constant(block: QuantumCircuit) -> None:
-            if value:
-                block.x(ancilla)
 
-        return f"const{value}", constant
+def _dj_constant(rng: random.Random, n: int) -> _DjOracle:
+    """f(x) = 0 or 1."""
+    value = rng.randint(0, 1)
+
+    def build(block: QuantumCircuit) -> None:
+        if value:
+            block.x(n - 1)
+
+    return _DjOracle(DJ_CONSTANT, f"const{value}", n - 1, 0, "", build)
+
+
+def _dj_linear(rng: random.Random, n: int) -> _DjOracle:
+    """Balanced parity of a random non-empty subset ``S``, with X around a random ``b``."""
+    inputs = n - 1
     subset = _random_bits(rng, inputs, nonzero=True)
     flips = [bit & rng.randint(0, 1) for bit in subset]
 
-    def balanced(block: QuantumCircuit) -> None:
+    def build(block: QuantumCircuit) -> None:
         wrapped = [i for i, bit in enumerate(flips) if bit]
         if wrapped:
             block.x(wrapped)
         for i, bit in enumerate(subset):
             if bit:
-                block.cx(i, ancilla)
+                block.cx(i, inputs)
         if wrapped:
             block.x(wrapped)
 
-    return f"bal_S{_bits(subset)}_b{_bits(flips)}", balanced
+    return _DjOracle(DJ_LINEAR, f"bal_S{_bits(subset)}_b{_bits(flips)}", inputs, 0, "", build)
 
 
-def deutsch_jozsa(n: int, rng: random.Random) -> OracleCircuit:
-    """Deutsch-Jozsa on ``n - 1`` inputs with a random constant or balanced oracle."""
+def _dj_terms(rng: random.Random, pivot: int, inputs: int, max_size: int) -> list[tuple[int, ...]]:
+    """1 to 3 distinct random products of 2 to ``max_size`` inputs other than ``pivot``."""
+    rest = [i for i in range(inputs) if i != pivot]
+    terms: set[tuple[int, ...]] = set()
+    for _ in range(rng.randint(1, 3)):
+        size = rng.randint(2, min(max_size, len(rest)))
+        terms.add(tuple(sorted(rng.sample(rest, size))))
+    return sorted(terms)
+
+
+def _dj_nonlinear(rng: random.Random, n: int, construction: str) -> _DjOracle | None:
+    """Balanced non-linear ``f(x) = x_i XOR g(rest)``; ``None`` if ``n`` is too small.
+
+    ``g`` is the XOR of 1 to 3 products of 2 or 3 variables. ``f`` is balanced because for
+    any value of the other inputs, flipping ``x_i`` flips ``f``. Products of two variables
+    are CCX gates; products of three use a multi-controlled X of the given construction,
+    whose clean ancillas (if any) widen the circuit.
+    """
+    three_ancillas = mcx_ancillas(construction, 3)
+    max_size = 3 if rng.random() < 0.5 else 2
+    inputs = n - 1 - (three_ancillas if max_size == 3 else 0)
+    if max_size == 3 and inputs < 4:  # x_i plus at least three other inputs
+        max_size, inputs = 2, n - 1
+    if inputs < 3:  # x_i plus at least two other inputs
+        return None
+    pivot = rng.randrange(inputs)
+    terms = _dj_terms(rng, pivot, inputs, max_size)
+    uses_mcx = any(len(term) == 3 for term in terms)
+    ancillas = n - 1 - inputs
+    if not uses_mcx and ancillas:  # no product of three: the ancillas are not needed
+        inputs, ancillas = n - 1, 0
+        pivot = min(pivot, inputs - 1)
+    output = inputs
+
+    def build(block: QuantumCircuit) -> None:
+        block.cx(pivot, output)
+        for term in terms:
+            if len(term) == 2:
+                block.ccx(*term, output)
+            else:
+                aux = range(output + 1, output + 1 + ancillas)
+                block.append(_mcx(construction, 3), [*term, output, *aux])
+
+    terms_id = "+".join(".".join(str(i) for i in term) for term in terms)
+    used = construction if uses_mcx else MCX_DIRECT
+    oracle_id = f"nl_k{inputs}_i{pivot}_g{terms_id}"
+    return _DjOracle(DJ_NONLINEAR, oracle_id, inputs, ancillas, used, build)
+
+
+def _dj_choose(rng: random.Random, n: int, construction: str) -> _DjOracle:
+    """50 % constant; balanced ones are 70 % non-linear and 30 % linear (parities)."""
+    if rng.random() < 0.5:
+        return _dj_constant(rng, n)
+    if rng.random() < DJ_NONLINEAR_SHARE:
+        nonlinear = _dj_nonlinear(rng, n, construction)
+        if nonlinear is not None:
+            return nonlinear
+    return _dj_linear(rng, n)
+
+
+def deutsch_jozsa(n: int, rng: random.Random, construction: str | None = None) -> OracleCircuit:
+    """Deutsch-Jozsa with a random constant, linear or non-linear balanced oracle.
+
+    Qubits: inputs, then the output (prepared in |->), then the clean ancillas of the
+    multi-controlled X gates of non-linear oracles (if any).
+    """
     if n < 2:
         raise InvalidSizeError("dj needs at least 2 qubits")
-    inputs = n - 1
-    oracle_id, build_oracle = _dj_oracle(rng, inputs)
+    construction = construction or rng.choice(MCX_CONSTRUCTIONS)
+    oracle = _dj_choose(rng, n, construction)
+    inputs, kickback = oracle.inputs, oracle.inputs + 1
     circuit = _with_measured_register(n, inputs)
-    circuit.append(_block(BLOCK_INITIAL, n, _prepare_phase_kickback), range(n))
-    circuit.append(_block(BLOCK_ORACLE, n, build_oracle), range(n))
+    circuit.append(_block(BLOCK_INITIAL, kickback, _prepare_phase_kickback), range(kickback))
+    circuit.append(_block(BLOCK_ORACLE, n, oracle.build), range(n))
     circuit.append(_block(BLOCK_FINAL, inputs, lambda b: b.h(range(inputs))), range(inputs))
     circuit.measure(range(inputs), range(inputs))
-    return OracleCircuit(circuit, f"dj_n{n}_{oracle_id}")
+    return OracleCircuit(
+        circuit,
+        f"dj_n{n}_{oracle.oracle_id}",
+        mcx_construction=oracle.construction,
+        dj_kind=oracle.kind,
+    )
 
 
 def _prepare_phase_kickback(block: QuantumCircuit) -> None:
@@ -294,15 +414,6 @@ def simon(n: int, rng: random.Random) -> OracleCircuit:
 # --------------------------------------------------------------------------------------------
 
 
-def mcx_ancillas(construction: str, num_controls: int) -> int:
-    """Clean ancillas needed by a multi-controlled X construction."""
-    if num_controls <= 2:
-        return 0
-    if construction == MCX_VCHAIN:
-        return num_controls - 2
-    return math.ceil((num_controls - 2) / 2)
-
-
 def grover_width(search: int, construction: str) -> int:
     """Total qubits of a Grover circuit with ``search`` search qubits."""
     return search + mcx_ancillas(construction, search - 1)
@@ -368,13 +479,6 @@ def grover(n: int, rng: random.Random, construction: str | None = None) -> Oracl
     states_id = "-".join(_bits([s >> i & 1 for i in range(search)]) for s in marked)
     used = construction if search - 1 > 2 else MCX_DIRECT
     return OracleCircuit(circuit, f"grover_n{n}_m{states_id}", mcx_construction=used)
-
-
-def grover_construction_plan(config: DatasetConfig, n: int, count: int) -> list[str]:
-    """Half v-chain, half m15 (shuffled with a seed) for the oracles of one size."""
-    plan = [MCX_CONSTRUCTIONS[i % 2] for i in range(count)]
-    random.Random(derive_seed(config.semilla_global, "construccion_mcx", n)).shuffle(plan)
-    return plan
 
 
 BUILDERS: dict[str, Callable[[int, random.Random], OracleCircuit]] = {
@@ -460,6 +564,7 @@ def _metadata_row(
         "ruta_raw": path.relative_to(config.rutas.raiz).as_posix(),
         "oraculo_id": generated.oracle_id,
         "construccion_mcx": generated.mcx_construction,
+        "tipo_oraculo_dj": generated.dj_kind,
     }
 
 
@@ -482,7 +587,8 @@ def _generate_size(config: DatasetConfig, task: OracleTask, n: int, result: Orac
     Candidates are drawn with seeds derived from the configuration; repeated oracles and
     circuits above ``max_nodos`` (estimated with a plain canonical translation) are skipped.
     """
-    plan = grover_construction_plan(config, n, task.per_size)
+    options = grover_constructions(n) if task.algorithm == "grover" else MCX_CONSTRUCTIONS
+    plan = construction_plan(config, task.algorithm, n, task.per_size, options)
     seen: set[str] = set()
     fitting = 0
     for attempt in range(task.per_size * MAX_ATTEMPTS_PER_ORACLE):
@@ -490,8 +596,8 @@ def _generate_size(config: DatasetConfig, task: OracleTask, n: int, result: Orac
             break
         seed = derive_seed(config.semilla_global, "oraculo", task.algorithm, n, attempt)
         builder = BUILDERS[task.algorithm]
-        if task.algorithm == "grover":
-            builder = partial(grover, construction=plan[len(seen)])
+        if task.algorithm in ("grover", "dj"):
+            builder = partial(builder, construction=plan[len(seen)])
         try:
             generated = builder(n, random.Random(seed))
         except InvalidSizeError as exc:

@@ -37,6 +37,7 @@ DATASET_KEYS = (
     "reservados_sin_familia",
     "excluidos",
     "variacionales_con_parametros",
+    "etiquetas",
     "oraculos",
     "rutas",
 )
@@ -59,6 +60,7 @@ SPLITS_KEYS = (
     "algoritmos_reservados",
     "minimo_por_clase_train",
     "balanceo",
+    "por_nivel",
 )
 BALANCING_MODES = ("muestreo", "ponderacion")
 SPLIT_SETS = ("train", "val", "test")
@@ -94,6 +96,16 @@ class MappedConfig:
     """Options for the ``mapped`` level."""
 
     dispositivo: str
+
+
+@dataclass(frozen=True)
+class LabelsConfig:
+    """How algorithms map to training class labels."""
+
+    fusiones: Mapping[str, str]
+    solo_familia: tuple[str, ...]
+    clase_propia_con_minimo: tuple[str, ...]
+    minimo_bases_clase_propia: int
 
 
 @dataclass(frozen=True)
@@ -138,6 +150,7 @@ class DatasetConfig:
     reservados_sin_familia: tuple[str, ...]
     excluidos: tuple[str, ...]
     variacionales_con_parametros: tuple[str, ...]
+    etiquetas: LabelsConfig
     oraculos: OraclesConfig
     rutas: PathsConfig
 
@@ -190,6 +203,14 @@ class SizeSplitConfig:
 
 
 @dataclass(frozen=True)
+class LevelSplitConfig:
+    """Levels used for training and testing in the ``por_nivel`` protocol."""
+
+    train: tuple[str, ...]
+    test: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class BalancingConfig:
     """Class balancing applied when building the splits."""
 
@@ -207,6 +228,7 @@ class SplitsConfig:
     algoritmos_reservados: tuple[str, ...]
     minimo_por_clase_train: int
     balanceo: BalancingConfig
+    por_nivel: LevelSplitConfig
 
 
 # --------------------------------------------------------------------------------------------
@@ -361,6 +383,24 @@ def _parse_opt_levels(value: Any, ctx: str) -> tuple[int, ...]:
     return levels
 
 
+def _parse_labels(value: Any, ctx: str) -> LabelsConfig:
+    """Parse the ``etiquetas`` section (consistency is checked later)."""
+    data = _as_mapping(value, ctx)
+    keys = ("fusiones", "solo_familia", "clase_propia_con_minimo", "minimo_bases_clase_propia")
+    _warn_unknown_keys(data, keys, ctx)
+    merges, merges_ctx = _get(data, "fusiones", ctx)
+    merges = _as_mapping(merges, merges_ctx)
+    return LabelsConfig(
+        fusiones={
+            _as_str(source, merges_ctx): _as_str(target, f"{merges_ctx}[{source}]")
+            for source, target in merges.items()
+        },
+        solo_familia=_as_str_tuple(*_get(data, "solo_familia", ctx)),
+        clase_propia_con_minimo=_as_str_tuple(*_get(data, "clase_propia_con_minimo", ctx)),
+        minimo_bases_clase_propia=_as_int(*_get(data, "minimo_bases_clase_propia", ctx), minimum=1),
+    )
+
+
 def _parse_oracles(value: Any, ctx: str) -> OraclesConfig:
     """Parse the ``oraculos`` section."""
     data = _as_mapping(value, ctx)
@@ -392,6 +432,7 @@ def _parse_dataset(data: Mapping[str, Any], ctx: str, config_dir: Path) -> Datas
         variacionales_con_parametros=_as_str_tuple(
             *_get(data, "variacionales_con_parametros", ctx)
         ),
+        etiquetas=_parse_labels(*_get(data, "etiquetas", ctx)),
         oraculos=_parse_oracles(*_get(data, "oraculos", ctx)),
         rutas=_parse_paths(*_get(data, "rutas", ctx), config_dir=config_dir),
     )
@@ -414,6 +455,17 @@ def _dataset_consistency_errors(config: DatasetConfig) -> list[str]:
         errors.append(f"reservados_sin_familia entries are also used elsewhere: {unfamiliar_used}")
     if excluded_used := sorted(set(config.excluidos) & (classes | negative | unfamiliar)):
         errors.append(f"excluidos entries are also used elsewhere: {excluded_used}")
+    merges = config.etiquetas.fusiones
+    if bad := sorted(name for name in [*merges, *merges.values()] if name not in classes):
+        errors.append(f"etiquetas.fusiones mentions non-class algorithms: {bad}")
+    if chained := sorted(set(merges) & set(merges.values())):
+        errors.append(f"etiquetas.fusiones merges into merged classes: {chained}")
+    if bad := sorted(set(config.etiquetas.clase_propia_con_minimo) - classes):
+        errors.append(f"etiquetas.clase_propia_con_minimo mentions non-classes: {bad}")
+    if bad := sorted(set(config.etiquetas.solo_familia) - classes):
+        errors.append(f"etiquetas.solo_familia mentions non-classes: {bad}")
+    if bad := sorted(set(config.etiquetas.solo_familia) & {*merges, *merges.values()}):
+        errors.append(f"etiquetas.solo_familia entries are also merged: {bad}")
     if not_classes := sorted(set(config.variacionales_con_parametros) - classes):
         errors.append(f"variacionales_con_parametros entries are not classes: {not_classes}")
     return errors
@@ -489,6 +541,17 @@ def _parse_size_split(value: Any, ctx: str) -> SizeSplitConfig:
     return SizeSplitConfig(**ranges)
 
 
+def _parse_level_split(value: Any, ctx: str) -> LevelSplitConfig:
+    """Parse ``por_nivel``: disjoint, valid level lists for train and test."""
+    data = _as_mapping(value, ctx)
+    _warn_unknown_keys(data, ("train", "test"), ctx)
+    train = _parse_levels(*_get(data, "train", ctx))
+    test = _parse_levels(*_get(data, "test", ctx))
+    if overlap := sorted(set(train) & set(test)):
+        raise ConfigError(f"{ctx}: levels in both train and test: {overlap}")
+    return LevelSplitConfig(train=train, test=test)
+
+
 def _parse_balancing(value: Any, ctx: str) -> BalancingConfig:
     """Parse the ``balanceo`` section."""
     data = _as_mapping(value, ctx)
@@ -510,6 +573,7 @@ def _parse_splits(data: Mapping[str, Any], ctx: str) -> SplitsConfig:
         algoritmos_reservados=_as_str_tuple(*_get(data, "algoritmos_reservados", ctx)),
         minimo_por_clase_train=_as_int(*_get(data, "minimo_por_clase_train", ctx), minimum=0),
         balanceo=_parse_balancing(*_get(data, "balanceo", ctx)),
+        por_nivel=_parse_level_split(*_get(data, "por_nivel", ctx)),
     )
 
 

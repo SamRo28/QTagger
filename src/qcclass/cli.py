@@ -5,13 +5,14 @@ Heavy dependencies (Qiskit, MQT Bench) are imported inside each command so that
 """
 
 import logging
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
 import typer
 
 if TYPE_CHECKING:
-    from qcclass.config import DatasetConfig
+    from qcclass.config import DatasetConfig, SplitsConfig
     from qcclass.data.generar_mqt import GenerationReport
 
 NOT_IMPLEMENTED_MESSAGE = "no implementado"
@@ -52,6 +53,17 @@ def _load_dataset_config(path: Path) -> "DatasetConfig":
         raise typer.Exit(code=1) from exc
 
 
+def _load_splits_config(path: Path, dataset: "DatasetConfig") -> "SplitsConfig":
+    """Load the split configuration, turning validation errors into a clean exit."""
+    from qcclass.config import ConfigError, load_splits_config
+
+    try:
+        return load_splits_config(path, dataset=dataset)
+    except ConfigError as exc:
+        typer.echo(f"Configuration error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
 def _print_generation_report(report: "GenerationReport", levels: tuple[str, ...]) -> None:
     """Print circuits generated per algorithm and level, and errors per algorithm and type."""
     import pandas as pd
@@ -81,6 +93,8 @@ def main(
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     logging.getLogger("qcclass").setLevel(logging.DEBUG if verbose else logging.INFO)
+    # torch_geometric triggers this at import time with torch 2.15; it is not actionable here.
+    warnings.filterwarnings("ignore", message="`torch.jit.script` is deprecated")
 
 
 @app.command()
@@ -191,38 +205,73 @@ def deduplicar(
     procesos: Annotated[int, typer.Option(min=1, help="Number of worker processes.")] = 1,
 ) -> None:
     """Detect duplicated canonical circuits and write the deduplication report."""
-    from qcclass.config import ConfigError, load_splits_config
     from qcclass.data.calidad import (
-        unique_canonical,
-        unique_per_class_and_level,
+        usable,
+        usable_per_label_and_level,
         write_deduplication_report,
     )
     from qcclass.data.deduplicar import deduplicate
 
     dataset = _load_dataset_config(config)
-    try:
-        split_config = load_splits_config(splits, dataset=dataset)
-    except ConfigError as exc:
-        typer.echo(f"Configuration error: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
+    split_config = _load_splits_config(splits, dataset)
     report = deduplicate(dataset, force=forzar, processes=procesos)
-    unique = unique_canonical(report.canonical)
-    typer.echo(f"\nUnique canonical circuits: {len(unique)} of {len(report.canonical)}")
-    typer.echo(unique_per_class_and_level(unique).to_string())
+    rows = usable(report.canonical)
+    typer.echo(f"\nUsable canonical circuits: {len(rows)} of {len(report.canonical)}")
+    typer.echo(usable_per_label_and_level(rows).to_string())
     path = write_deduplication_report(dataset, split_config, report.canonical, report.conflicts)
     typer.echo(f"\nReport: {path}")
 
 
 @app.command()
-def formatos() -> None:
+def formatos(
+    config: ConfigOption = DEFAULT_DATASET_CONFIG,
+    splits: SplitsOption = DEFAULT_SPLITS_CONFIG,
+    procesos: Annotated[int, typer.Option(min=1, help="Number of worker processes.")] = 1,
+) -> None:
     """F3-F7: derive features, graphs, tokens and gate labels."""
-    _not_implemented("formatos")
+    from qcclass.formatos.construir import build_formats
+
+    dataset = _load_dataset_config(config)
+    split_config = _load_splits_config(splits, dataset)
+    report = build_formats(dataset, split_config.algoritmos_reservados, processes=procesos)
+    typer.echo(
+        f"\nCircuits with formats: {report.circuits} (labelled F7 variants: {report.labelled})"
+    )
+    typer.echo(f"Trainable class labels ({len(report.classes)}): {', '.join(report.classes)}")
+    typer.echo(f"Families ({len(report.families)}): {', '.join(report.families)}")
+    typer.echo("\nConsistency check (F2 gates = F4 nodes = F6 tokens = F7 labels):")
+    for row in report.consistency:
+        labels = "-" if row.labels_f7 is None else row.labels_f7
+        status = "ok" if row.consistent else "MISMATCH"
+        typer.echo(
+            f"  {row.id}: {row.gates_f2} / {row.nodes_f4} / {row.tokens_f6} / {labels}  {status}"
+        )
+    if not all(row.consistent for row in report.consistency):
+        raise typer.Exit(code=1)
 
 
 @app.command()
-def particiones() -> None:
+def particiones(
+    config: ConfigOption = DEFAULT_DATASET_CONFIG,
+    splits: SplitsOption = DEFAULT_SPLITS_CONFIG,
+    forzar: Annotated[bool, typer.Option("--forzar", help="Rebuild existing splits.")] = False,
+) -> None:
     """Create the train/val/test split protocols."""
-    _not_implemented("particiones")
+    from qcclass.data.particiones import create_splits
+
+    dataset = _load_dataset_config(config)
+    split_config = _load_splits_config(splits, dataset)
+    report = create_splits(dataset, split_config, force=forzar)
+    created = ", ".join(report.created) or "none (use --forzar to rebuild)"
+    typer.echo(f"\nProtocols created: {created}")
+    if report.cap is not None:
+        typer.echo(f"Train groups per label capped at {report.cap}")
+    for protocol, table in report.tables.items():
+        counts = table["conjunto"].value_counts().to_dict()
+        typer.echo(f"  {protocol}: {counts}")
+        if report.below_minimum.get(protocol):
+            typer.echo(f"    below minimum: {', '.join(report.below_minimum[protocol])}")
+    typer.echo(f"\nReport: {report.report_path}")
 
 
 @app.command()

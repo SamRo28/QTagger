@@ -1,9 +1,9 @@
 """Dataset quality control and report generation.
 
 For now (Phase 5) this module builds the deduplication report: unique canonical circuits
-per class and level, unique base circuits per class, conflicts between labels, and a
-*proposal* (never applied automatically) of classes to merge or to keep only with their
-family label.
+per training label and level, the label conflicts excluded from the dataset, the decision
+on classes that need a minimum of base circuits, and a *proposal* (never applied
+automatically) of classes to merge or to keep only with their family label.
 """
 
 import math
@@ -14,94 +14,112 @@ import pandas as pd
 
 from qcclass.circuitos import write_text_atomic
 from qcclass.config import DatasetConfig, SplitsConfig
+from qcclass.data.deduplicar import (
+    FAMILY_LABEL_PREFIX,
+    LABELLED_VARIANT,
+    family_label,
+    merged_labels,
+)
 
 DEDUP_REPORT_NAME = "informe_deduplicacion.md"
-HIGH_OVERLAP = 0.2  # share of a class's circuits in exact conflicts that suggests a merge
+MERGE_SHARE = 0.5  # propose a merge above this share of identical bases (smaller class)
 LEVELS = ("alg", "indep", "nativegates", "mapped")
 
 
 @dataclass(frozen=True)
 class ClassProposal:
-    """Proposed treatment of one class."""
+    """Proposed treatment of one training label."""
 
-    algorithm: str
+    label: str
     family: str
     bases: int
-    exact_overlap: float
     partner: str
+    identical_share: float
     proposal: str
 
 
-def unique_canonical(metadata: pd.DataFrame) -> pd.DataFrame:
-    """Canonical circuits that are not duplicates of another one."""
-    return metadata[(metadata["ruta_canonical"] != "") & (metadata["duplicado_de"] == "")]
+def labels(canonical: pd.DataFrame) -> pd.Series:
+    """Training label of each canonical row: ``clase`` or ``familia:<family>``."""
+    return canonical["clase"].where(
+        canonical["clase"] != "", canonical["familia"].map(family_label)
+    )
 
 
-def unique_per_class_and_level(unique: pd.DataFrame) -> pd.DataFrame:
-    """Table of unique canonical circuits per algorithm (rows) and level (columns)."""
-    table = pd.crosstab(unique["algoritmo"], unique["nivel"])
+def usable(canonical: pd.DataFrame) -> pd.DataFrame:
+    """Canonical circuits that are neither duplicates nor label conflicts."""
+    rows = canonical[(canonical["ruta_canonical"] != "") & (canonical["exclusion"] == "")]
+    return rows.assign(etiqueta=labels(rows))
+
+
+def usable_per_label_and_level(rows: pd.DataFrame) -> pd.DataFrame:
+    """Table of usable canonical circuits per label (rows) and level (columns)."""
+    table = pd.crosstab(rows["etiqueta"], rows["nivel"])
     table = table.reindex(columns=[level for level in LEVELS if level in table.columns])
     table["total"] = table.sum(axis=1)
+    table["bases"] = rows.groupby("etiqueta")["group_id"].nunique()
     return table
 
 
-def unique_bases(unique: pd.DataFrame) -> pd.Series:
-    """Base circuits (``group_id``) with at least one unique canonical circuit, per algorithm."""
-    return unique.groupby("algoritmo")["group_id"].nunique()
-
-
-def _partners(conflicts: pd.DataFrame, kind: str) -> dict[str, pd.Series]:
-    """For each algorithm, how many conflict groups of ``kind`` it shares with each other one."""
-    shared: dict[str, dict[str, int]] = {}
-    for _, group in conflicts[conflicts["tipo"] == kind].groupby("huella"):
-        algorithms = sorted(set(group["algoritmo"]))
-        for a in algorithms:
-            for b in algorithms:
-                if a != b:
-                    shared.setdefault(a, {}).setdefault(b, 0)
-                    shared[a][b] += 1
-    return {a: pd.Series(counts).sort_values(ascending=False) for a, counts in shared.items()}
-
-
-def _best_partner(algorithm: str, family: str, config: DatasetConfig, partners: dict) -> str:
-    """Class of the same family sharing most conflict groups with ``algorithm``, if any."""
-    candidates = partners.get(algorithm, pd.Series(dtype=int))
-    same_family = [name for name in candidates.index if name in config.familias.get(family, ())]
-    return same_family[0] if same_family else ""
+def identical_base_shares(canonical: pd.DataFrame) -> pd.DataFrame:
+    """For every ordered pair of labels (A, B): share of A's bases with a circuit identical
+    (same SHA) to some circuit of B. Computed on every canonical circuit, excluded included.
+    """
+    rows = canonical[canonical["ruta_canonical"] != ""].assign(etiqueta=labels(canonical))
+    labels_by_sha = rows.groupby("huella_sha")["etiqueta"].agg(set)
+    shared = rows.assign(others=rows["huella_sha"].map(labels_by_sha))
+    totals = rows.groupby("etiqueta")["group_id"].nunique()
+    records = []
+    for (label, group_id), group in shared.groupby(["etiqueta", "group_id"]):
+        for other in set().union(*group["others"]) - {label}:
+            records.append((label, other, group_id))
+    if not records:
+        return pd.DataFrame(
+            columns=["a", "b", "bases_identicas", "bases_a", "bases_b", "proporcion"]
+        )
+    pairs = pd.DataFrame(records, columns=["a", "b", "group_id"])
+    counts = pairs.groupby(["a", "b"])["group_id"].nunique().rename("bases_identicas")
+    table = counts.reset_index()
+    table["bases_a"] = table["a"].map(totals)
+    table["bases_b"] = table["b"].map(totals)
+    table["proporcion"] = table["bases_identicas"] / table["bases_a"]
+    return table
 
 
 def propose_classes(
-    config: DatasetConfig, splits: SplitsConfig, unique: pd.DataFrame, conflicts: pd.DataFrame
+    config: DatasetConfig, splits: SplitsConfig, canonical: pd.DataFrame
 ) -> list[ClassProposal]:
-    """Propose keeping, merging or family-only labelling for every non-reserved class.
+    """Propose keeping, merging or family-only labelling for every non-reserved class label.
 
-    A class needs about ``minimo_por_clase_train / aleatorio.train`` unique bases to reach
-    the training minimum. Below that, it is proposed for a merge with the class of its family
-    it shares most conflict groups with, or else for a family-only label. Classes with many
-    circuits identical to another class (exact conflicts) are proposed for review.
+    A merge is proposed only when more than half of the bases of the smaller class have a
+    circuit identical to one of the other class. Otherwise, a class with fewer than about
+    ``minimo_por_clase_train / aleatorio.train`` usable bases is proposed for a family-only
+    label.
     """
     needed = math.ceil(splits.minimo_por_clase_train / splits.aleatorio.train)
-    bases = unique_bases(unique)
-    exact_ids = set(conflicts.loc[conflicts["tipo"] == "exacto", "id"])
-    partners = {**_partners(conflicts, "estructural"), **_partners(conflicts, "exacto")}
+    rows = usable(canonical)
+    bases = rows.groupby("etiqueta")["group_id"].nunique()
+    shares = identical_base_shares(canonical)
+    families = rows.drop_duplicates("etiqueta").set_index("etiqueta")["familia"]
+    reserved = set(merged_labels(config, pd.Series(list(splits.algoritmos_reservados))))
+    class_labels = set(merged_labels(config, pd.Series(list(config.all_algorithms))))
     proposals = []
-    for algorithm in config.all_algorithms:
-        if algorithm in splits.algoritmos_reservados:
+    for label in sorted(bases.index):
+        if label in reserved or label not in class_labels:
             continue
-        family = config.family_of(algorithm)
-        ids = unique.loc[unique["algoritmo"] == algorithm, "id"]
-        overlap = ids.isin(exact_ids).mean() if len(ids) else 0.0
-        partner = _best_partner(algorithm, family, config, partners)
-        count = int(bases.get(algorithm, 0))
-        if count < needed:
-            proposal = f"fusionar con {partner}" if partner else "solo etiqueta de familia"
-        elif overlap >= HIGH_OVERLAP:
-            proposal = f"revisar: {overlap:.0%} idénticos a otra clase" + (
-                f" (posible fusión con {partner})" if partner else ""
-            )
+        candidates = shares[(shares["a"] == label) & (shares["bases_a"] <= shares["bases_b"])]
+        best = candidates.sort_values("proporcion", ascending=False).head(1)
+        partner = best["b"].iloc[0] if len(best) else ""
+        share = float(best["proporcion"].iloc[0]) if len(best) else 0.0
+        count = int(bases[label])
+        if share > MERGE_SHARE:
+            proposal = f"fusionar con {partner}"
+        elif count < needed:
+            proposal = "solo etiqueta de familia"
         else:
             proposal = "mantener"
-        proposals.append(ClassProposal(algorithm, family, count, overlap, partner, proposal))
+        proposals.append(
+            ClassProposal(label, families.get(label, ""), count, partner, share, proposal)
+        )
     return proposals
 
 
@@ -113,43 +131,87 @@ def _markdown(table: pd.DataFrame) -> str:
     return "\n".join([header, rule, *rows])
 
 
+def _conflict_summary(conflicts: pd.DataFrame) -> pd.DataFrame:
+    """Excluded exact conflicts: label combination, groups and circuits removed."""
+    exact = conflicts[conflicts["tipo"] == "exacto"]
+    if not len(exact):
+        return pd.DataFrame(columns=["etiquetas", "grupos", "circuitos excluidos"])
+    combos = exact.groupby("huella")["etiqueta"].agg(lambda s: " + ".join(sorted(set(s))))
+    exact = exact.assign(etiquetas=exact["huella"].map(combos))
+    summary = exact.groupby("etiquetas").agg(
+        grupos=("huella", "nunique"), circuitos=("id", "count")
+    )
+    return summary.rename(columns={"circuitos": "circuitos excluidos"}).reset_index()
+
+
+def _minimum_decisions(config: DatasetConfig, canonical: pd.DataFrame) -> pd.DataFrame:
+    """Outcome of ``clase_propia_con_minimo`` for each listed algorithm."""
+    minimum = config.etiquetas.minimo_bases_clase_propia
+    rows = canonical[(canonical["ruta_canonical"] != "") & (canonical["exclusion"] == "")]
+    bases = rows.groupby("algoritmo")["group_id"].nunique()
+    return pd.DataFrame(
+        [
+            {
+                "algoritmo": name,
+                "bases únicas": int(bases.get(name, 0)),
+                "mínimo": minimum,
+                "decisión": "clase propia"
+                if bases.get(name, 0) >= minimum
+                else "solo etiqueta de familia",
+            }
+            for name in config.etiquetas.clase_propia_con_minimo
+        ]
+    )
+
+
 def write_deduplication_report(
     config: DatasetConfig, splits: SplitsConfig, metadata: pd.DataFrame, conflicts: pd.DataFrame
 ) -> Path:
     """Write ``results/informe_deduplicacion.md`` and return its path."""
-    canonical = metadata[metadata["ruta_canonical"] != ""]
-    unique = unique_canonical(metadata)
-    per_level = unique_per_class_and_level(unique).reset_index()
+    canonical = metadata[
+        (metadata["ruta_canonical"] != "") & (metadata["variante_comp"] != LABELLED_VARIANT)
+    ]
+    rows = usable(canonical)
+    excluded = canonical["exclusion"].value_counts()
+    needed = math.ceil(splits.minimo_por_clase_train / splits.aleatorio.train)
     proposals = pd.DataFrame(
         [
             {
-                "clase": p.algorithm,
+                "etiqueta": p.label,
                 "familia": p.family,
-                "bases únicas": p.bases,
-                "idénticos a otra clase": f"{p.exact_overlap:.0%}",
+                "bases útiles": p.bases,
+                "más parecida": p.partner or "—",
+                "bases idénticas": f"{p.identical_share:.0%}",
                 "propuesta": p.proposal,
             }
-            for p in propose_classes(config, splits, unique, conflicts)
+            for p in propose_classes(config, splits, canonical)
         ]
     )
-    needed = math.ceil(splits.minimo_por_clase_train / splits.aleatorio.train)
-    by_kind = conflicts.groupby("tipo")["huella"].nunique() if len(conflicts) else pd.Series()
+    merges = ", ".join(f"`{a}` → `{b}`" for a, b in config.etiquetas.fusiones.items())
     text = "\n\n".join(
         [
             "# Informe de deduplicación (Fase 5)",
-            f"Circuitos canónicos: {len(canonical)}; duplicados exactos marcados: "
-            f"{int((canonical['duplicado_de'] != '').sum())}; únicos: {len(unique)}.",
-            f"Grupos conflictivos (etiquetas distintas): exactos {int(by_kind.get('exacto', 0))}, "
-            f"estructurales {int(by_kind.get('estructural', 0))} "
-            "(ver `data/logs/duplicados_conflictivos.csv`).",
-            "## Circuitos únicos por clase y nivel",
-            _markdown(per_level),
+            f"Circuitos canónicos: {len(canonical)}; duplicados exactos: "
+            f"{int(excluded.get('duplicado', 0))}; excluidos por conflicto de etiquetas: "
+            f"{int(excluded.get('conflicto_etiquetas', 0))}; útiles: {len(rows)}.",
+            f"Fusiones aplicadas: {merges or 'ninguna'}. Las etiquetas "
+            f"`{FAMILY_LABEL_PREFIX}<familia>` son clases que solo conservan la familia.",
+            "## Circuitos útiles por etiqueta y nivel",
+            _markdown(usable_per_label_and_level(rows).reset_index()),
+            "## Conflictos de etiquetas excluidos",
+            "Circuitos canónicos idénticos (mismo SHA) con etiquetas distintas: se eliminan de "
+            "todas las clases implicadas (lista completa en "
+            "`data/logs/duplicados_conflictivos.csv`, `tipo = exacto`).",
+            _markdown(_conflict_summary(conflicts)),
+            "## Clases propias condicionadas a un mínimo",
+            _markdown(_minimum_decisions(config, canonical)),
             "## Propuesta de clases (no aplicada)",
-            f"Una clase necesita unas {needed} bases únicas para llegar a "
+            f"Una clase necesita unas {needed} bases útiles para llegar a "
             f"`minimo_por_clase_train = {splits.minimo_por_clase_train}` con "
-            f"`train = {splits.aleatorio.train}`. Los algoritmos reservados no se evalúan. "
-            "La pareja propuesta es la clase de la misma familia con la que comparte más "
-            "grupos de circuitos idénticos o estructuralmente iguales.",
+            f"`train = {splits.aleatorio.train}`. Solo se propone una fusión si más del "
+            f"{MERGE_SHARE:.0%} de las bases de la clase más pequeña tienen un circuito idéntico "
+            'en la otra ("bases idénticas", calculado antes de excluir conflictos). Los '
+            "algoritmos reservados no se evalúan.",
             _markdown(proposals),
         ]
     )

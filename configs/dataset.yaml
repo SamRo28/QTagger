@@ -45,6 +45,22 @@ excluidos:
 
 variacionales_con_parametros: [qaoa, vqe_real_amp, vqe_su2, vqe_two_local, qnn]
 
+# Class labels used for training (column `clase` of the metadata).
+etiquetas:
+  fusiones:                             # algorithm -> class it is merged into
+    full_adder: cdkm_ripple_carry_adder
+    bell: ghz
+  solo_familia:                         # keep only the family label (too few bases)
+    - bmw_quark_copula
+    - draper_qft_adder
+    - half_adder
+    - modular_adder
+    - multiplier
+    - rg_qft_multiplier
+  clase_propia_con_minimo:              # own class only with enough unique base circuits,
+    - vbe_ripple_carry_adder            # otherwise family label only
+  minimo_bases_clase_propia: 22
+
 # In-house oracle circuits (dj, bv, simon, grover); see qcclass.data.oraculos.
 oraculos:
   por_tamano: 20                        # distinct oracles per size (fewer if fewer exist)

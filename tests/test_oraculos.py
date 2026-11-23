@@ -17,6 +17,8 @@ from qcclass.cli import app
 from qcclass.config import DatasetConfig
 from qcclass.data.oraculos import (
     ERROR_COLUMNS,
+    MCX_B95,
+    MCX_CONSTRUCTIONS,
     MCX_M15,
     MCX_VCHAIN,
     InvalidSizeError,
@@ -84,8 +86,8 @@ def test_simon_outcomes_are_orthogonal_to_secret(n: int, seed: int) -> None:
             assert bin(outcome & secret).count("1") % 2 == 0
 
 
-@pytest.mark.parametrize("n", [2, 3, 5, 6, 8])
-@pytest.mark.parametrize("construction", [MCX_VCHAIN, MCX_M15])
+@pytest.mark.parametrize("n", [2, 3, 4, 5, 6, 7, 8])
+@pytest.mark.parametrize("construction", MCX_CONSTRUCTIONS)
 @pytest.mark.parametrize("seed", SEEDS)
 def test_grover_amplifies_marked_states(n: int, construction: str, seed: int) -> None:
     generated = grover(n, random.Random(seed), construction=construction)
@@ -96,7 +98,7 @@ def test_grover_amplifies_marked_states(n: int, construction: str, seed: int) ->
 
 
 @pytest.mark.parametrize("num_controls", [3, 4, 5, 6])
-@pytest.mark.parametrize("construction", [MCX_VCHAIN, MCX_M15])
+@pytest.mark.parametrize("construction", MCX_CONSTRUCTIONS)
 def test_mcx_constructions_match_mcx_on_clean_ancillas(
     num_controls: int, construction: str
 ) -> None:
@@ -110,7 +112,6 @@ def test_mcx_constructions_match_mcx_on_clean_ancillas(
     reference.append(MCXGate(num_controls), range(num_controls + 1))
     full_a, full_b = Operator(vchain).data, Operator(reference).data
     clean = [i for i in range(2**block.num_qubits) if i >> (num_controls + 1) == 0]
-    assert ancillas > 0
     assert np.allclose(full_a[np.ix_(clean, clean)], full_b[np.ix_(clean, clean)])
 
 
@@ -118,10 +119,11 @@ def test_invalid_sizes() -> None:
     with pytest.raises(InvalidSizeError):
         simon(5, random.Random(0))
     with pytest.raises(InvalidSizeError):
-        grover(4, random.Random(0))
-    assert grover_constructions(7) == {MCX_VCHAIN: 5}
+        grover(1, random.Random(0))
+    assert grover_constructions(7) == {MCX_VCHAIN: 5, MCX_B95: 6}
     assert grover_constructions(6) == {MCX_M15: 5}
-    assert set(grover_constructions(9)) == {MCX_VCHAIN, MCX_M15}
+    assert set(grover_constructions(9)) == set(MCX_CONSTRUCTIONS)
+    assert all(grover_constructions(n) for n in range(2, 41))
 
 
 def _metadata(config: DatasetConfig) -> pd.DataFrame:
@@ -152,10 +154,15 @@ def test_generation_metadata_files_and_blocks(make_config: ConfigFactory) -> Non
 
     errors = read_table(errors_path(config), ERROR_COLUMNS)
     grover_rows = metadata[metadata["algoritmo"] == "grover"]
-    assert set(grover_rows["construccion_mcx"]) <= {"directa", MCX_VCHAIN, MCX_M15}
+    assert set(grover_rows["construccion_mcx"]) <= {"directa", *MCX_CONSTRUCTIONS}
     assert set(grover_rows.loc[grover_rows["n_qubits"] == "6", "construccion_mcx"]) == {MCX_M15}
-    assert set(metadata.loc[metadata["algoritmo"] != "grover", "construccion_mcx"]) == {""}
-    assert {("simon", "3"), ("simon", "5"), ("grover", "4")} <= set(
+    assert set(metadata.loc[metadata["algoritmo"].isin(["bv", "simon"]), "construccion_mcx"]) == {
+        ""
+    }
+    dj_kinds = set(metadata.loc[metadata["algoritmo"] == "dj", "tipo_oraculo_dj"])
+    assert dj_kinds <= {"constante", "lineal", "no_lineal"} and "no_lineal" in dj_kinds
+    assert set(metadata.loc[metadata["algoritmo"] != "dj", "tipo_oraculo_dj"]) == {""}
+    assert {("simon", "3"), ("simon", "5")} <= set(
         zip(errors["algoritmo"], errors["n"], strict=True)
     )
 
@@ -190,6 +197,35 @@ def test_cli_oracles(make_config: ConfigFactory, tmp_path: Path) -> None:
 
 def test_grover_constructions_are_balanced_per_size(make_config: ConfigFactory) -> None:
     config = make_config(oraculos={"por_tamano": 6})
-    generate_oracles(config, ["grover"], [9])
+    generate_oracles(config, ["grover"], [5])  # all three fit; none exceeds max_nodos
     used = _metadata(config)["construccion_mcx"].value_counts()
-    assert used[MCX_VCHAIN] == used[MCX_M15] == 3
+    assert used[MCX_VCHAIN] == used[MCX_M15] == used[MCX_B95] == 2
+
+
+@pytest.mark.parametrize("n", range(4, 7))
+@pytest.mark.parametrize("construction", MCX_CONSTRUCTIONS)
+def test_nonlinear_dj_oracles_are_balanced(n: int, construction: str) -> None:
+    """Every non-linear oracle is balanced and leaves its MCX ancillas clean (n <= 6)."""
+    checked = 0
+    for seed in range(60):
+        generated = deutsch_jozsa(n, random.Random(seed), construction=construction)
+        if generated.dj_kind != "no_lineal":
+            continue
+        checked += 1
+        assert "_g" in generated.oracle_id
+        circuit = generated.circuit
+        state = Statevector(circuit.remove_final_measurements(inplace=False))
+        inputs = circuit.num_clbits
+        # balanced <=> the all-zero outcome on the inputs has zero amplitude
+        assert state.probabilities(qargs=list(range(inputs)))[0] == pytest.approx(0, abs=1e-9)
+        ancillas = list(range(inputs + 1, circuit.num_qubits))
+        if ancillas:
+            assert state.probabilities(qargs=ancillas)[0] == pytest.approx(1.0)
+    assert checked > 5
+
+
+def test_dj_balanced_mix_is_mostly_nonlinear() -> None:
+    kinds = [deutsch_jozsa(8, random.Random(seed)).dj_kind for seed in range(600)]
+    balanced = [k for k in kinds if k != "constante"]
+    share = balanced.count("no_lineal") / len(balanced)
+    assert 0.6 < share < 0.8

@@ -4,6 +4,7 @@
 semilla: 42
 aleatorio: {train: 0.70, val: 0.15, test: 0.15}        # fractions of group_id, must sum to 1
 por_tamano: {train: [3, 16], val: [17, 20], test: [21, 30]}  # inclusive qubit ranges, disjoint
+por_nivel: {train: [alg, indep], test: [nativegates, mapped]}   # levels, deduplicated together
 algoritmos_reservados: [qwalk, hrs_cumulative_multiplier, hhl]   # never seen in training
 minimo_por_clase_train: 15   # unique base circuits (group_id) per class in train
 

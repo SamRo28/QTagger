@@ -64,31 +64,55 @@ Registro vivo de cómo se trabaja en este repositorio y de las decisiones que se
 | 2026-11-23 | 5 | Representante de cada grupo de duplicados: el de nivel más alto (alg < indep < nativegates < mapped) y, a igualdad, el menor `id` | Determinista y conserva preferentemente la versión algorítmica | — |
 | 2026-11-23 | 5 | Propuesta de fusiones / etiqueta solo de familia en `results/informe_deduplicacion.md`, sin aplicarla | Decisión aplazada por el responsable hasta ver recuentos deduplicados | Decidirlo antes de deduplicar |
 | 2026-11-23 | 5 | Al escribir QPY se comprueba que se puede leer; si no, las puertas de librería se envuelven en puertas con nombre equivalentes (`make_qpy_safe`) | Qiskit 2.6 escribe `FullAdderGate`, `HalfAdderGate`, `ModularAdderGate` y `MultiplierGate` en QPY pero no puede leerlas (falta `num_state_qubits`) | Leer esos circuitos desde QASM 3 |
+| 2026-11-23 | 5 | Fusiones `full_adder` → `cdkm_ripple_carry_adder` y `bell` → `ghz` (`etiquetas.fusiones`, columna `clase`) | full_adder y cdkm coinciden en el 95 % de sus bases; bell/ghz por decisión del responsable (solo 5 % idénticas) | Mantenerlas separadas |
+| 2026-11-23 | 5 | `draper_qft_adder` y `modular_adder` no se fusionan | Solo el 10 % de sus bases son idénticas (2 de 20; n = 6 y 8) | Fusionarlas |
+| 2026-11-23 | 5 | `vbe_ripple_carry_adder` es clase propia solo con ≥ 22 bases útiles; si no, solo etiqueta de familia (`clase` vacía). Hoy tiene 13 → solo familia | No se parece a ninguna otra clase (8 %) y no llega al mínimo | Fusionarla con full_adder |
+| 2026-11-23 | 5 | La propuesta de fusión exige que más del 50 % de las bases de la clase más pequeña sean idénticas a la otra | La regla anterior proponía fusiones con un solo grupo compartido | Partner = clase con más grupos compartidos |
+| 2026-11-23 | 5 | Los duplicados exactos con etiquetas distintas se excluyen de todas las clases implicadas (`exclusion = conflicto_etiquetas`) y se listan en el informe | Un mismo circuito no puede tener dos etiquetas de entrenamiento | Conservarlos y solo listarlos |
+| 2026-11-23 | 4 | DJ balanceado: 70 % no lineales `f(x) = x_i ⊕ g(resto)` (g = XOR de 1–3 productos de 2–3 variables, con CCX o MCX de las tres construcciones) y 30 % lineales; columna `tipo_oraculo_dj` | Una paridad con X envolventes sigue siendo BV disfrazado | Exigir X envolventes en las paridades |
+| 2026-11-23 | 4 | Tercera construcción MCX `b95` (`synth_mcx_1_clean_b95`); las construcciones que caben en cada tamaño se reparten a partes iguales con semilla | Más tamaños con al menos dos construcciones; existen Grover de todos los tamaños ≥ 2 | Solo v-chain + m15 |
+| 2026-11-23 | 7 | Protocolo `por_nivel`: train en ALG + INDEP (deduplicados entre sí), test en NATIVEGATES + MAPPED (`splits.yaml: por_nivel`) | INDEP casi duplica ALG tras normalizar y dejaba el train vacío | Train solo en INDEP |
+| 2026-11-23 | 6 | Orden de nodos de F4/F6/F7 = orden de `circuit.data` del circuito canónico (orden topológico estable, implícito: nodo i = instrucción i) | Es determinista y permite alinear las etiquetas F7 sin guardar un mapeo aparte | `dag.topological_op_nodes()` con mapeo guardado |
+| 2026-11-23 | 6 | F4: el papel de control/destino de cada cúbit en una CX va en los atributos de arista (`edge_attr` = control/destino en origen y en destino); los nodos llevan el índice relativo de sus dos cúbits | Un nodo CX es a la vez control y destino: el indicador por nodo no distingue nada | Indicadores por nodo |
+| 2026-11-23 | 6 | F4/F5 se guardan como un `.pt` por circuito (diccionario de tensores, carga con `weights_only=True`) + `indice.csv` + `IndexedGraphDataset` de carga perezosa | ~14 M de nodos (1–1,5 GB): un `InMemoryDataset` único no cabe cómodamente en memoria | `InMemoryDataset` colacionado |
+| 2026-11-23 | 6 | F6: ángulos reducidos a [-π, π) y redondeados a 3 decimales; sin "-0.000" | Rotaciones equivalentes comparten token | Ángulo tal cual |
+| 2026-11-23 | 6 | Variante `etiquetada` (F7) con `exclusion = etiquetada`: tiene todos los formatos pero nunca entra en las particiones | Es auxiliar para explicabilidad; con opt 0 suele coincidir con c1 | Tratarla como variante de entrenamiento |
+| 2026-11-23 | 6 | Etiquetas de F4/F5: `y_algoritmo`/`y_familia` = índices de `data/graphs/etiquetas.json`; -1 para el control negativo y los reservados sin familia, y `y_algoritmo = -1` en las clases que solo conservan la familia | Un solo vocabulario compartido por todos los formatos | Etiquetas como texto |
+| 2026-11-23 | 6 | Dependencias nuevas: `matplotlib`, `pylatexenc`; extra dev `nbformat`, `nbclient`, `ipykernel`. El notebook se ejecuta en un test `slow` | El notebook de inspección las necesita | Notebook sin ejecución automática |
+| 2026-11-23 | 6 | Solo etiqueta de familia para `bmw_quark_copula`, `draper_qft_adder`, `half_adder`, `modular_adder`, `multiplier` y `rg_qft_multiplier` (`etiquetas.solo_familia`); draper y modular no se fusionan. Quedan 22 etiquetas de algoritmo: 20 entrenables y 2 reservadas (`hhl`, `hrs_cumulative_multiplier`) | Menos de 22 bases útiles; solo 10 % de bases idénticas entre draper y modular | Fusionar draper y modular |
+| 2026-11-23 | 6 | Códigos: `y_algoritmo = -1` sin etiqueta de algoritmo (la cabeza de familia sí lo usa); `-2` desconocido (control negativo y reservados, solo en evaluación). Los reservados con familia conservan `y_familia`; `qwalk` y `randomcircuit` llevan `y_familia = -2`. `etiquetas.json` documenta los códigos | Evaluar si la cabeza de familia generaliza a algoritmos no vistos | Un único código -1 |
+| 2026-11-23 | 7 | La variante `etiquetada` sigue a su `group_id`: en val/test entra con `solo_evaluacion = True`; en train se excluye. La deduplicación la ignora | Material de evaluación para explicabilidad sin contaminar train | Excluirla de todas las particiones |
+| 2026-11-23 | 7 | Asignación estratificada por etiqueta: los `group_id` de cada etiqueta se reparten 70/15/15 con `GroupShuffleSplit` en dos etapas (semilla derivada por protocolo y etiqueta); con menos de 3 grupos, uno a train y otro a test | Estratificación exacta y ningún grupo en dos conjuntos | `StratifiedGroupKFold` con 20 pliegues |
+| 2026-11-23 | 7 | Balanceo por muestreo solo en train (máximo `max_bases_por_clase` grupos por etiqueta, por defecto la mediana = 39); val y test completos; los grupos no muestreados no aparecen en el CSV pero siguen en disco | Conservar toda la evaluación; las métricas deben ser macro | Muestrear antes de partir (reduce también test) |
+| 2026-11-23 | 7 | `por_nivel`: train = niveles ALG+INDEP de los grupos de train; val = esos niveles de los grupos de val; test = NATIVEGATES+MAPPED de otros grupos | Un mismo grupo no puede estar en train y test | Mismo grupo en train (alg) y test (mapped) |
+| 2026-11-23 | 7 | `oraculos_no_vistos`: unidad de partición `oraculo_id` (`mqt:<group_id>` para los de MQT) | Ningún oráculo de test se ve en train | — |
+| 2026-11-23 | 7 | `abierto` = `aleatorio` (misma asignación y mismo muestreo) + desconocidos; `aleatorio` no incluye desconocidos | El plan define `abierto` como `aleatorio` más los desconocidos | — |
 
 ## Avisos pendientes
 
-- **DJ 78/676.** Las constantes son 78 frente a 676 balanceadas (solo hay 2 funciones
-  constantes distintas por tamaño).
-- **Desequilibrio de clases.** Entre 5 bases (`hrs_cumulative_multiplier`) y 793 (`dj`),
-  mediana 39. Se resolverá en la Fase 7 con `balanceo`; la propuesta de fusionar clases o
-  dejarlas solo con etiqueta de familia irá en el informe de calidad tras la Fase 5, con
-  recuentos deduplicados.
-- **F7 y renombrados.** Al recargar QASM 3, el exportador renombra las puertas envueltas
-  (`_c_unitary_0`, …) y las permutaciones (`permutation__3_2_1_0_`). Mitigado leyendo QPY,
-  que conserva los nombres originales; hay que comprobarlo al implementar F7.
-- **Grover: tamaños sin construcción.** Con las dos construcciones no hay circuito de
-  4, 10, 16, 22… cúbits, y en 6, 7, 8, 12, 13, 14… solo cabe una de las dos, así que en esos
-  tamaños la anchura sigue delatando la construcción.
-- **DJ balanceado = BV.** 66 grupos de circuitos canónicos idénticos entre `dj` y `bv`: un
-  oráculo DJ balanceado sin X envolventes es exactamente BV con `s = S`. No se borran (etiquetas
-  distintas); se puede evitar generando solo DJ balanceados con X o filtrando esos casos.
-- **`full_adder` ≈ `cdkm_ripple_carry_adder`.** 18 grupos idénticos (el `full_adder` de MQT
-  es la misma construcción CDKM). Candidatos claros a fusión.
-- **INDEP casi duplica ALG.** Tras normalizar, la mayoría de los circuitos `indep` coinciden
-  con su `alg` (en mqt.bench 2.4 INDEP transpila sin conjunto de puertas) y se marcan como
-  duplicados; el protocolo `por_nivel` (train en `indep`) tendrá pocos datos.
-- **Propuesta de clases pendiente de decisión** en `results/informe_deduplicacion.md`:
-  fusiones en `aritmetica` (cdkm+full_adder, draper+modular_adder…), solo familia para
-  `multiplier`, `rg_qft_multiplier`, `half_adder`, `bmw_quark_copula`; `bell` con `ghz`.
-- **Grover en la Fase 3 (MQT).** Hasta n=9 por la sonda; los oráculos propios llegan a n=17.
+- **DJ.** Hay 78 constantes, 229 lineales y 447 no lineales (los tamaños 2 y 3 solo
+  admiten lineales). 45 grupos DJ lineal = BV se excluyen de ambas clases.
+- **Desequilibrio de clases.** Bases útiles entre 5 (`hrs_cumulative_multiplier`) y 778
+  (`dj`). Se resolverá en la Fase 7 con `balanceo` (muestreo o ponderación).
+- **Propuesta pendiente de decisión** (`results/informe_deduplicacion.md`): solo etiqueta
+  de familia para `bmw_quark_copula`, `draper_qft_adder`, `half_adder`, `modular_adder`,
+  `multiplier` y `rg_qft_multiplier` (menos de 22 bases útiles); ninguna fusión nueva supera
+  el 50 %.
+- **Grover: tamaños con una sola construcción.** En 4, 6, 10, 16, 22… solo cabe una de las
+  tres. Además, los descartes por `max_nodos` rompen el equilibrio en los tamaños grandes
+  (b95 usa más cúbits de búsqueda y supera antes el límite): Grover propio llega a n = 13.
+- **F7 y renombrados (resuelto).** F7 lee QPY y conserva los nombres originales de los
+  bloques (`c-unitary`, `qft_dg`, `oraculo`…); comprobado en los tests.
+- **INDEP casi duplica ALG** tras normalizar; por eso `por_nivel` entrena en ALG + INDEP.
+- **Modelos (Fase 11): usar `edge_attr`.** El papel de control/destino de cada cúbit en
+  una CX solo está en `edge_attr` de F4: hay que usar capas que lo consuman (GINEConv o
+  GATv2 con `edge_dim`). GIN o GraphSAGE puros lo ignorarían.
+- **Evaluación: desgloses obligatorios.** Desglosar el acierto de `grover` por
+  `construccion_mcx` y el de `dj` por `tipo_oraculo_dj`, para detectar si el modelo se apoya
+  en la construcción o en la linealidad del oráculo.
+- **Por debajo del mínimo de train.** `familia:variacionales` (solo `bmw_quark_copula`) tiene
+  14 grupos de train (< 15) en `aleatorio`, `por_nivel` y `abierto`; en `por_tamano` lo están
+  11 etiquetas, porque el rango de train (3–16 cúbits) deja pocas bases por clase.
+- **`por_tamano` sin Grover en test.** Los Grover acaban en n = 13, así que no hay Grover en
+  test (21–30 cúbits) ni F7 de Grover en ese protocolo.
 

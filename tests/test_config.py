@@ -49,6 +49,10 @@ def test_dataset_config_loads(dataset_yaml: Path, repo_root: Path) -> None:
     assert len(config.all_algorithms) == 31
     assert config.reservados_sin_familia == ("qwalk",)
     assert config.oraculos.por_tamano == 20
+    assert config.etiquetas.fusiones == {"full_adder": "cdkm_ripple_carry_adder", "bell": "ghz"}
+    assert config.etiquetas.clase_propia_con_minimo == ("vbe_ripple_carry_adder",)
+    assert len(config.etiquetas.solo_familia) == 6
+    assert config.etiquetas.minimo_bases_clase_propia == 22
     assert config.family_of("grover") == "oraculos"
     assert config.control_negativo == ("randomcircuit",)
     assert set(config.excluidos) == {
@@ -88,6 +92,8 @@ def test_splits_config_loads(splits_yaml: Path, dataset_yaml: Path) -> None:
     assert splits.minimo_por_clase_train == 15
     assert splits.balanceo.modo == "muestreo"
     assert splits.balanceo.max_bases_por_clase is None
+    assert splits.por_nivel.train == ("alg", "indep")
+    assert splits.por_nivel.test == ("nativegates", "mapped")
 
 
 # --------------------------------------------------------------------------------------------
@@ -147,6 +153,14 @@ def _boolean_seed(data: dict[str, Any]) -> None:
     data["semilla_global"] = True
 
 
+def _merge_into_unknown(data: dict[str, Any]) -> None:
+    data["etiquetas"]["fusiones"]["bell"] = "not_a_class"
+
+
+def _chained_merge(data: dict[str, Any]) -> None:
+    data["etiquetas"]["fusiones"]["ghz"] = "wstate"
+
+
 def _unfamiliar_also_class(data: dict[str, Any]) -> None:
     data["reservados_sin_familia"].append("ghz")
 
@@ -165,6 +179,8 @@ def _unfamiliar_also_class(data: dict[str, Any]) -> None:
         (_bad_opt_level, "opt_level"),
         (_boolean_seed, "semilla_global"),
         (_unfamiliar_also_class, "reservados_sin_familia"),
+        (_merge_into_unknown, "not_a_class"),
+        (_chained_merge, "merged classes"),
     ],
 )
 def test_invalid_dataset_config_fails(
@@ -201,6 +217,10 @@ def _zero_cap(data: dict[str, Any]) -> None:
     data["balanceo"]["max_bases_por_clase"] = 0
 
 
+def _level_in_train_and_test(data: dict[str, Any]) -> None:
+    data["por_nivel"]["test"].append("indep")
+
+
 @pytest.mark.parametrize(
     ("mutate", "message"),
     [
@@ -209,6 +229,7 @@ def _zero_cap(data: dict[str, Any]) -> None:
         (_unknown_reserved_algorithm, "not_a_benchmark"),
         (_unknown_balancing_mode, "modo"),
         (_zero_cap, "max_bases_por_clase"),
+        (_level_in_train_and_test, "both train and test"),
     ],
 )
 def test_invalid_splits_config_fails(

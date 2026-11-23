@@ -22,10 +22,12 @@ dependencies = [
     "torch-geometric",
     "tqdm",
     "typer",
+    "matplotlib",  # notebooks and figures
+    "pylatexenc",  # Qiskit "mpl" circuit drawer
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "ruff"]
+dev = ["pytest", "ruff", "nbformat", "nbclient", "ipykernel"]
 
 [project.scripts]
 qcclass = "qcclass.cli:app"
@@ -36,6 +38,10 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["slow: long-running integration tests (deselect with -m 'not slow')"]
+filterwarnings = [
+    # raised by torch_geometric at import time (torch.jit.script is deprecated in torch 2.15)
+    "ignore:`torch.jit.script` is deprecated:FutureWarning",
+]
 
 [tool.ruff]
 line-length = 100
