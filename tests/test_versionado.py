@@ -1,6 +1,8 @@
 """Tests for the dataset version and the protection of the test sets."""
 
+import importlib.metadata
 import json
+import logging
 from collections.abc import Callable
 from pathlib import Path
 
@@ -14,9 +16,11 @@ from qcclass.versionado import (
     LockedTestSetError,
     VersionError,
     access_log_path,
+    begin_experiment,
     current_hashes,
     file_sha256,
     global_fingerprint,
+    library_differences,
     read_version,
     split_ids,
     version_differences,
@@ -62,7 +66,7 @@ def test_version_records_every_file(versioned: DatasetConfig) -> None:
         "huella_dataset": version.huella,
     }
     stored = json.loads(versioned.rutas.version.read_text(encoding="utf-8"))
-    assert set(stored) == {"nombre", "huella", "archivos", "creado", "git_commit"}
+    assert set(stored) == {"nombre", "huella", "archivos", "creado", "git_commit", "librerias"}
 
 
 def test_changes_are_detected(versioned: DatasetConfig) -> None:
@@ -125,3 +129,41 @@ def test_cli_versionar(versioned: DatasetConfig, tmp_path: Path) -> None:
     versioned.rutas.metadata.write_text("id\n", encoding="utf-8")
     bad = CliRunner().invoke(app, ["versionar", "--config", config_path, "--comprobar"])
     assert bad.exit_code == 1 and "modificado data/metadata.csv" in bad.output
+
+
+def test_version_records_generator_libraries(versioned: DatasetConfig) -> None:
+    version = read_version(versioned)
+    assert version.librerias == {
+        "qiskit": importlib.metadata.version("qiskit"),
+        "mqt.bench": importlib.metadata.version("mqt.bench"),
+    }
+    assert library_differences(versioned) == []
+
+
+def test_begin_experiment_compares_fingerprints(versioned: DatasetConfig) -> None:
+    stamp = begin_experiment(versioned, "exp-1")
+    assert stamp == version_stamp(versioned)
+    (versioned.rutas.splits / "aleatorio.csv").write_text("id,conjunto\n", encoding="utf-8")
+    with pytest.raises(VersionError, match="modificado data/splits/aleatorio.csv"):
+        begin_experiment(versioned, "exp-1")
+
+
+def test_hand_edited_version_file_is_detected(versioned: DatasetConfig) -> None:
+    stored = json.loads(versioned.rutas.version.read_text(encoding="utf-8"))
+    stored["huella"] = "0" * 64
+    versioned.rutas.version.write_text(json.dumps(stored), encoding="utf-8")
+    with pytest.raises(VersionError, match="incoherente"):
+        begin_experiment(versioned, "exp-1")
+
+
+def test_other_library_version_only_warns(
+    versioned: DatasetConfig, caplog: pytest.LogCaptureFixture
+) -> None:
+    stored = json.loads(versioned.rutas.version.read_text(encoding="utf-8"))
+    stored["librerias"]["qiskit"] = "0.0.1"
+    versioned.rutas.version.write_text(json.dumps(stored), encoding="utf-8")
+    installed = importlib.metadata.version("qiskit")
+    assert library_differences(versioned) == [f"qiskit: dataset 0.0.1, instalada {installed}"]
+    with caplog.at_level(logging.WARNING):
+        begin_experiment(versioned, "exp-1")
+    assert "library version differs" in caplog.text

@@ -31,9 +31,12 @@ Registro vivo de cómo se trabaja en este repositorio y de las decisiones que se
   idempotente; `--forzar` regenera.
 - **Versión del dataset.** `data/VERSION.json` (versionado en git, etiqueta `dataset-v1`)
   guarda el SHA-256 de `metadata.csv`, de cada CSV de `data/splits/` y de
-  `data/graphs/etiquetas.json`, más una huella global. Todo resultado desde `dataset-v1`
-  guarda `qcclass.versionado.version_stamp()` (nombre y huella), que falla si los datos no
-  coinciden con la versión. `qcclass versionar --comprobar` lo verifica.
+  `data/graphs/etiquetas.json`, más una huella global y las versiones de Qiskit y MQT Bench
+  con que se generaron. Todo experimento empieza llamando a
+  `qcclass.versionado.begin_experiment()`, que compara las huellas (las de cada archivo y la
+  global) y aborta si no coinciden; una versión distinta de Qiskit o MQT Bench solo avisa.
+  Todo resultado desde `dataset-v1` guarda `version_stamp()` (nombre y huella).
+  `qcclass versionar --comprobar` hace las mismas comprobaciones.
 - **Test protegido.** Las particiones solo se leen con `qcclass.versionado.split_ids`: pedir
   `test` sin `--evaluar-test` lanza `LockedTestSetError`; cada acceso permitido añade una
   línea a `results/accesos_test.log` (fecha, experimento, versión, huella, protocolo).
@@ -105,6 +108,7 @@ Registro vivo de cómo se trabaja en este repositorio y de las decisiones que se
 | 2026-11-23 | 8 | `oraculos` sin `--algoritmos` genera solo los algoritmos de oráculo que son clases de la configuración | La configuración reducida no tiene bv ni simon | Error si falta alguno |
 | 2026-11-23 | — | Etiqueta git `dataset-v1` y `data/VERSION.json` (excepción en `.gitignore`; ruta en `rutas.version`) | Fijar los datos exactos sobre los que se entrenan y evalúan los modelos | Versionar los datos completos en git |
 | 2026-11-23 | — | Acceso a particiones centralizado en `split_ids`; `--evaluar-test` obligatorio para test, con registro; sin versión coincidente no se lee ninguna partición | Evitar mirar test por accidente y dejar rastro de cada evaluación | Confiar en la disciplina |
+| 2026-11-23 | — | `VERSION.json` guarda las versiones de Qiskit y MQT Bench; todo experimento arranca con `begin_experiment`, que compara las huellas y aborta si difieren. Una librería distinta solo avisa | Los experimentos leen los circuitos guardados y no los regeneran: otra versión de Qiskit no cambia los datos, pero conviene saberlo. La huella global se recalcula para detectar un `VERSION.json` editado a mano | Abortar también si cambia una librería |
 
 ## Avisos pendientes
 

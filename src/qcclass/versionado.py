@@ -1,9 +1,11 @@
 """Dataset versioning and guarded access to the test sets.
 
 Version. ``<rutas.version>`` (``data/VERSION.json``, versioned in git) records the SHA-256
-of ``metadata.csv``, of every CSV in ``<splits>/`` and of ``<graphs>/etiquetas.json``, plus a
-global fingerprint of all of them. Every result produced from the dataset must store
-:func:`version_stamp`, which refuses to work if the files no longer match the version.
+of ``metadata.csv``, of every CSV in ``<splits>/`` and of ``<graphs>/etiquetas.json``, a
+global fingerprint of all of them and the versions of the libraries that generated the data
+(Qiskit and MQT Bench). Every result produced from the dataset must store
+:func:`version_stamp`, which refuses to work if the files no longer match the version, and
+every experiment starts with :func:`begin_experiment`, which compares the fingerprints.
 
 Test protection. :func:`split_ids` is the only way to read the identifiers of a split
 protocol. Asking for ``test`` without ``evaluar_test=True`` (the ``--evaluar-test`` option of
@@ -12,6 +14,7 @@ experiment, dataset version, protocol) to ``<resultados>/accesos_test.log``.
 """
 
 import hashlib
+import importlib.metadata
 import json
 import logging
 import subprocess
@@ -31,6 +34,8 @@ LABEL_VOCABULARY_FILE = "etiquetas.json"  # written by the formats step in <grap
 TEST_ACCESS_LOG = "accesos_test.log"
 TEST_SET = "test"
 _CHUNK = 1 << 20
+# distributions whose versions determine the generated circuits
+GENERATOR_LIBRARIES = ("qiskit", "mqt.bench")
 
 
 class VersionError(RuntimeError):
@@ -50,6 +55,7 @@ class DatasetVersion:
     archivos: dict[str, str]
     creado: str
     git_commit: str
+    librerias: dict[str, str]
 
 
 def file_sha256(path: Path) -> str:
@@ -99,6 +105,17 @@ def _git_commit(root: Path) -> str:
     return result.stdout.strip()
 
 
+def library_versions() -> dict[str, str]:
+    """Installed versions of :data:`GENERATOR_LIBRARIES` (``"no instalada"`` if missing)."""
+    versions = {}
+    for name in GENERATOR_LIBRARIES:
+        try:
+            versions[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            versions[name] = "no instalada"
+    return versions
+
+
 def write_version(config: DatasetConfig, name: str) -> DatasetVersion:
     """Hash the versioned files and write ``VERSION.json``.
 
@@ -114,6 +131,7 @@ def write_version(config: DatasetConfig, name: str) -> DatasetVersion:
         archivos=hashes,
         creado=datetime.now(UTC).isoformat(timespec="seconds"),
         git_commit=_git_commit(config.rutas.raiz),
+        librerias=library_versions(),
     )
     text = json.dumps(asdict(version), indent=2, ensure_ascii=False) + "\n"
     write_text_atomic(text, config.rutas.version)
@@ -129,10 +147,18 @@ def read_version(config: DatasetConfig) -> DatasetVersion:
 
 
 def version_differences(config: DatasetConfig) -> list[str]:
-    """Differences between ``VERSION.json`` and the files on disk (empty if they match)."""
-    recorded = read_version(config).archivos
+    """Differences between ``VERSION.json`` and the files on disk (empty if they match).
+
+    Besides comparing every file hash, the recorded global fingerprint is recomputed from the
+    recorded hashes, so a hand-edited ``VERSION.json`` is also reported.
+    """
+    version = read_version(config)
+    recorded = version.archivos
     current = current_hashes(config)
-    differences = [f"falta {path}" for path in sorted(set(recorded) - set(current))]
+    differences = []
+    if global_fingerprint(recorded) != version.huella:
+        differences.append("huella global de VERSION.json incoherente con sus archivos")
+    differences += [f"falta {path}" for path in sorted(set(recorded) - set(current))]
     differences += [f"nuevo {path}" for path in sorted(set(current) - set(recorded))]
     differences += [
         f"modificado {path}"
@@ -152,6 +178,39 @@ def version_stamp(config: DatasetConfig) -> dict[str, str]:
     if differences := version_differences(config):
         raise VersionError(f"dataset does not match {version.nombre}: {differences}")
     return {"version_dataset": version.nombre, "huella_dataset": version.huella}
+
+
+def library_differences(config: DatasetConfig) -> list[str]:
+    """Generator libraries whose installed version differs from the one in ``VERSION.json``."""
+    recorded = read_version(config).librerias
+    installed = library_versions()
+    return [
+        f"{name}: dataset {recorded.get(name, '?')}, instalada {installed[name]}"
+        for name in GENERATOR_LIBRARIES
+        if recorded.get(name) != installed[name]
+    ]
+
+
+def begin_experiment(config: DatasetConfig, experiment: str) -> dict[str, str]:
+    """Check the dataset at the start of an experiment and return its version stamp.
+
+    Every experiment command calls this before doing anything else: the files must match the
+    fingerprints of ``VERSION.json`` (otherwise :class:`VersionError`). A different Qiskit or
+    MQT Bench version only logs a warning, because experiments read the stored circuits and
+    never regenerate them.
+    """
+    if not experiment:
+        raise ValueError("every experiment must have a name")
+    stamp = version_stamp(config)
+    for difference in library_differences(config):
+        logger.warning("library version differs from the dataset: %s", difference)
+    logger.info(
+        "experiment %s starts on %s (%s)",
+        experiment,
+        stamp["version_dataset"],
+        stamp["huella_dataset"][:12],
+    )
+    return stamp
 
 
 # --------------------------------------------------------------------------------------------

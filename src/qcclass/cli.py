@@ -361,7 +361,13 @@ def versionar(
     ] = False,
 ) -> None:
     """Record (``--nombre``) or check (``--comprobar``) the dataset version."""
-    from qcclass.versionado import VersionError, read_version, version_differences, write_version
+    from qcclass.versionado import (
+        VersionError,
+        library_differences,
+        read_version,
+        version_differences,
+        write_version,
+    )
 
     dataset = _load_dataset_config(config)
     if comprobar == (nombre is not None):
@@ -375,6 +381,7 @@ def versionar(
             return
         version = read_version(dataset)
         differences = version_differences(dataset)
+        libraries = library_differences(dataset)
     except VersionError as exc:
         typer.echo(f"Version error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
@@ -384,3 +391,5 @@ def versionar(
             typer.echo(f"  {difference}")
         raise typer.Exit(code=1)
     typer.echo(f"Dataset matches {version.nombre} ({version.huella[:12]})")
+    for difference in libraries:
+        typer.echo(f"  warning, generator library differs: {difference}")

@@ -11,5 +11,9 @@
     "data/graphs/etiquetas.json": "d9eb63b27506cbebd308db1ac2630f0e9a4f46073cdc737d025d596c9305f060"
   },
   "creado": "2026-11-23T11:37:21+00:00",
-  "git_commit": "e93901ad78c2ce6f093dbde1aeba17cfd2e52eed"
+  "git_commit": "e93901ad78c2ce6f093dbde1aeba17cfd2e52eed",
+  "librerias": {
+    "qiskit": "2.6.2",
+    "mqt.bench": "2.4.0"
+  }
 }
