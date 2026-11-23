@@ -15,7 +15,9 @@ Protocols:
 
 * ``aleatorio``: 70/15/15 of the groups of every label (stratified by label) with
   scikit-learn's ``GroupShuffleSplit`` in two stages.
-* ``por_tamano``: by number of qubits, using the ranges of ``splits.yaml``.
+* ``por_tamano``: relative cuts per label: the smallest 70 % of its valid sizes go to train,
+  the next 15 % to val and the largest 15 % to test (at least one size each); labels with
+  fewer than three sizes are left out and logged.
 * ``oraculos_no_vistos``: oracle family only; the split unit is ``oraculo_id`` (the group
   for MQT circuits), so no test oracle is seen in training.
 * ``por_nivel``: groups split as in ``aleatorio``; train keeps the train levels of its
@@ -23,9 +25,11 @@ Protocols:
   (NATIVEGATES + MAPPED) of other groups.
 * ``abierto``: ``aleatorio`` plus the unknown circuits as ``desconocido``.
 
-Balancing (``balanceo``): in ``muestreo`` mode, the train groups of each label are sampled
-down to ``max_bases_por_clase`` (val/test are kept whole; nothing is deleted from disk); in
-``ponderacion`` mode every group is kept and ``pesos_<protocolo>.json`` holds per-class loss
+Balancing (``balanceo``, val and test always kept whole, nothing deleted from disk):
+``muestreo`` samples the train groups of each label down to ``max_bases_por_clase`` (by
+default ``factor_mediana`` x the median of train groups per label); ``ponderacion`` keeps
+every group and computes loss weights inversely proportional to the train groups of each
+class; ``combinado`` does both. ``balanceo_<protocolo>.json`` stores the cap and the
 weights. Splits are created once and only rebuilt with ``force``.
 """
 
@@ -125,15 +129,18 @@ def stratified_assignment(
 # --------------------------------------------------------------------------------------------
 
 
-def resolve_cap(config: DatasetConfig, splits: SplitsConfig, rows: pd.DataFrame) -> int:
-    """``max_bases_por_clase``, or the median of base circuits per label over the labels whose
-    algorithms are not variational with parameters."""
+def _train_groups(rows: pd.DataFrame, sets: pd.Series) -> pd.Series:
+    """Train groups per label (known circuits used for training only)."""
+    train = rows[(sets == TRAIN) & ~rows["desconocido"] & ~rows["solo_evaluacion"]]
+    return train.groupby("etiqueta")["group_id"].nunique()
+
+
+def resolve_cap(splits: SplitsConfig, rows: pd.DataFrame, sets: pd.Series) -> int:
+    """``max_bases_por_clase``, or ``factor_mediana`` x the median of train groups per label."""
     if splits.balanceo.max_bases_por_clase is not None:
         return splits.balanceo.max_bases_por_clase
-    trainable = rows[~rows["desconocido"] & ~rows["solo_evaluacion"]]
-    variational = set(config.variacionales_con_parametros)
-    reference = trainable[~trainable["algoritmo"].isin(sorted(variational))]
-    return round(statistics.median(reference.groupby("etiqueta")["group_id"].nunique()))
+    median = statistics.median(_train_groups(rows, sets))
+    return max(1, round(splits.balanceo.factor_mediana * median))
 
 
 def cap_train_groups(
@@ -154,13 +161,17 @@ def cap_train_groups(
 
 
 def class_weights(rows: pd.DataFrame, sets: pd.Series) -> dict[str, dict[str, float]]:
-    """Inverse-frequency loss weights (mean 1) from the train circuits of each head."""
-    train = rows[sets == TRAIN]
+    """Loss weights inversely proportional to the train groups of each class (mean 1).
+
+    ``algoritmo``: trainable class labels (family-only and unknown circuits excluded);
+    ``familia``: families of every known training circuit.
+    """
+    train = rows[(sets == TRAIN) & ~rows["desconocido"] & ~rows["solo_evaluacion"]]
     weights = {}
     for head, column in (("algoritmo", "clase"), ("familia", "familia")):
-        counts = train.loc[train[column] != "", column].value_counts()
-        total, classes = counts.sum(), len(counts)
-        weights[head] = {name: total / (classes * count) for name, count in counts.items()}
+        groups = train[train[column] != ""].groupby(column)["group_id"].nunique()
+        inverse = 1.0 / groups
+        weights[head] = {name: float(w) for name, w in (inverse / inverse.mean()).items()}
     return weights
 
 
@@ -174,12 +185,38 @@ def _random(rows: pd.DataFrame, config: DatasetConfig, splits: SplitsConfig) -> 
     return stratified_assignment(known, splits, "aleatorio").reindex(rows.index)
 
 
+def size_cuts(sizes: Sequence[int], splits: SplitsConfig) -> dict[int, str] | None:
+    """Relative cuts: smallest sizes to train, next to val, largest to test.
+
+    With ``k`` distinct sizes, val and test get ``max(1, round(k * fraction))`` sizes each
+    and train the rest. ``None`` when there are fewer than three sizes.
+    """
+    ordered = sorted(set(sizes))
+    if len(ordered) < 3:
+        return None
+    n_val = max(1, round(len(ordered) * splits.aleatorio.val))
+    n_test = max(1, round(len(ordered) * splits.aleatorio.test))
+    n_train = len(ordered) - n_val - n_test
+    names = [TRAIN] * n_train + [VAL] * n_val + [TEST] * n_test
+    return dict(zip(ordered, names, strict=True))
+
+
+def size_exclusions(rows: pd.DataFrame, splits: SplitsConfig) -> dict[str, list[int]]:
+    """Labels left out of ``por_tamano`` (fewer than three sizes) and their sizes."""
+    known = rows[~rows["desconocido"] & ~rows["solo_evaluacion"]]
+    sizes = known.groupby("etiqueta")["n_qubits"].agg(lambda s: sorted(set(s)))
+    return {label: values for label, values in sizes.items() if size_cuts(values, splits) is None}
+
+
 def _by_size(rows: pd.DataFrame, config: DatasetConfig, splits: SplitsConfig) -> pd.Series:
     sets = pd.Series(np.nan, index=rows.index, dtype=object)
-    known = ~rows["desconocido"]
-    for name in (TRAIN, VAL, TEST):
-        size = getattr(splits.por_tamano, name)
-        sets[known & rows["n_qubits"].between(size.min, size.max)] = name
+    known = rows[~rows["desconocido"]]
+    for _, group in known.groupby("etiqueta", sort=True):
+        training = group[~group["solo_evaluacion"]]
+        cuts = size_cuts(list(training["n_qubits"]), splits)
+        if cuts is None:
+            continue
+        sets[group.index] = group["n_qubits"].map(cuts)
     return sets
 
 
@@ -219,19 +256,33 @@ BUILDERS: dict[str, Callable[[pd.DataFrame, DatasetConfig, SplitsConfig], pd.Ser
 }
 
 
+@dataclass(frozen=True)
+class ProtocolSplit:
+    """Split table of one protocol and its balancing."""
+
+    table: pd.DataFrame
+    cap: int | None
+    weights: dict[str, dict[str, float]] | None
+
+
 def build_protocol(
-    rows: pd.DataFrame, config: DatasetConfig, splits: SplitsConfig, protocol: str, cap: int | None
-) -> pd.DataFrame:
-    """Split table of one protocol (rows not assigned to any set are left out)."""
+    rows: pd.DataFrame, config: DatasetConfig, splits: SplitsConfig, protocol: str
+) -> ProtocolSplit:
+    """Build one protocol: assign sets, drop labelled variants in train, balance."""
     sets = BUILDERS[protocol](rows, config, splits)
     labelled_in_train = rows["solo_evaluacion"] & (sets == TRAIN)
     sets = sets.where(~labelled_in_train)
-    if cap is not None:
+    mode = splits.balanceo.modo
+    cap = None
+    if mode in ("muestreo", "combinado"):
+        cap = resolve_cap(splits, rows, sets)
         # ``abierto`` must keep exactly the known part of ``aleatorio``: same sampling seed
         cap_key = "aleatorio" if protocol == "abierto" else protocol
         sets = cap_train_groups(rows, sets, cap, splits, cap_key)
+    weights = class_weights(rows, sets) if mode in ("ponderacion", "combinado") else None
     table = rows.assign(conjunto=sets).dropna(subset=["conjunto"])
-    return table[list(SPLIT_COLUMNS)].sort_values("id").reset_index(drop=True)
+    table = table[list(SPLIT_COLUMNS)].sort_values("id").reset_index(drop=True)
+    return ProtocolSplit(table, cap, weights)
 
 
 # --------------------------------------------------------------------------------------------
@@ -245,8 +296,9 @@ class SplitsReport:
 
     tables: dict[str, pd.DataFrame]
     created: tuple[str, ...]
-    cap: int | None
+    caps: dict[str, int | None]
     below_minimum: dict[str, list[str]]
+    size_exclusions: dict[str, list[int]]
     report_path: Path
 
 
@@ -255,17 +307,38 @@ def split_path(config: DatasetConfig, protocol: str) -> Path:
     return config.rutas.splits / f"{protocol}.csv"
 
 
+def balance_path(config: DatasetConfig, protocol: str) -> Path:
+    """``<splits>/balanceo_<protocol>.json``: cap used and loss weights."""
+    return config.rutas.splits / f"balanceo_{protocol}.json"
+
+
 def _read_split(path: Path) -> pd.DataFrame:
     table = pd.read_csv(path, dtype=str, keep_default_na=False)
     return table.assign(solo_evaluacion=table["solo_evaluacion"] == "True")
 
 
 def below_minimum(table: pd.DataFrame, rows: pd.DataFrame, minimum: int) -> list[str]:
-    """Labels with fewer than ``minimum`` unique train groups."""
-    train = rows.loc[rows["id"].isin(table.loc[table["conjunto"] == TRAIN, "id"])]
+    """Labels of the protocol with fewer than ``minimum`` unique train groups."""
+    joined = rows[rows["id"].isin(table["id"])]
+    known = joined.loc[~joined["desconocido"] & ~joined["solo_evaluacion"], "etiqueta"].unique()
+    train = rows[rows["id"].isin(table.loc[table["conjunto"] == TRAIN, "id"])]
     counts = train.groupby("etiqueta")["group_id"].nunique()
-    known = rows.loc[~rows["desconocido"] & ~rows["solo_evaluacion"], "etiqueta"].unique()
     return sorted(label for label in known if counts.get(label, 0) < minimum)
+
+
+def _write_protocol(config: DatasetConfig, protocol: str, split: ProtocolSplit) -> None:
+    write_table(split.table, split_path(config, protocol))
+    balance = {"max_bases_por_clase": split.cap, "pesos": split.weights}
+    write_text_atomic(json.dumps(balance, indent=2), balance_path(config, protocol))
+
+
+def _read_cap(config: DatasetConfig, protocol: str) -> int | None:
+    path = balance_path(config, protocol)
+    return (
+        json.loads(path.read_text(encoding="utf-8"))["max_bases_por_clase"]
+        if path.is_file()
+        else None
+    )
 
 
 def create_splits(
@@ -278,24 +351,19 @@ def create_splits(
     """Create the missing (or, with ``force``, all) protocol files and the split report."""
     metadata = read_table(config.rutas.metadata, METADATA_COLUMNS)
     rows = candidate_rows(config, splits, metadata)
-    sampling = splits.balanceo.modo == "muestreo"
-    cap = resolve_cap(config, splits, rows) if sampling else None
-    tables, created = {}, []
+    tables, caps, created = {}, {}, []
     for protocol in protocols:
         path = split_path(config, protocol)
         if path.is_file() and not force:
-            tables[protocol] = _read_split(path)
+            tables[protocol], caps[protocol] = _read_split(path), _read_cap(config, protocol)
             continue
-        table = build_protocol(rows, config, splits, protocol, cap)
-        write_table(table, path)
-        if not sampling:
-            sets = rows["id"].map(table.set_index("id")["conjunto"])
-            weights = class_weights(rows, sets)
-            write_text_atomic(
-                json.dumps(weights, indent=2), config.rutas.splits / f"pesos_{protocol}.json"
-            )
-        tables[protocol] = table
+        split = build_protocol(rows, config, splits, protocol)
+        _write_protocol(config, protocol, split)
+        tables[protocol], caps[protocol] = split.table, split.cap
         created.append(protocol)
+    excluded = size_exclusions(rows, splits) if "por_tamano" in protocols else {}
+    for label, sizes in excluded.items():
+        logger.warning("por_tamano: '%s' left out, only %d sizes %s", label, len(sizes), sizes)
     minimum = splits.minimo_por_clase_train
     low = {
         p: below_minimum(t, rows, minimum) for p, t in tables.items() if p != "oraculos_no_vistos"
@@ -305,8 +373,8 @@ def create_splits(
             logger.warning(
                 "%s: labels below minimo_por_clase_train=%d: %s", protocol, minimum, labels
             )
-    report = write_split_report(config, splits, rows, tables, cap, low)
-    return SplitsReport(tables, tuple(created), cap, low, report)
+    report = write_split_report(config, splits, rows, tables, caps, low, excluded)
+    return SplitsReport(tables, tuple(created), caps, low, excluded, report)
 
 
 # --------------------------------------------------------------------------------------------
@@ -321,15 +389,19 @@ def _markdown(table: pd.DataFrame) -> str:
     return "\n".join([header, rule, *body])
 
 
-def _set_summary(table: pd.DataFrame, rows: pd.DataFrame) -> pd.DataFrame:
-    """Circuits, groups and labelled (evaluation-only) circuits per set."""
+def set_summary(table: pd.DataFrame, rows: pd.DataFrame) -> pd.DataFrame:
+    """Real distribution per set: circuits and groups (with shares over train/val/test)."""
     merged = table.merge(rows[["id", "group_id"]], on="id")
     summary = merged.groupby("conjunto").agg(
         circuitos=("id", "count"),
         grupos=("group_id", "nunique"),
         solo_evaluacion=("solo_evaluacion", "sum"),
     )
-    return summary.reindex([s for s in (TRAIN, VAL, TEST, UNKNOWN) if s in summary.index])
+    summary = summary.reindex([s for s in (TRAIN, VAL, TEST, UNKNOWN) if s in summary.index])
+    known = summary.drop(index=UNKNOWN, errors="ignore")
+    summary["% circuitos"] = (100 * known["circuitos"] / known["circuitos"].sum()).round(1)
+    summary["% grupos"] = (100 * known["grupos"] / known["grupos"].sum()).round(1)
+    return summary.astype(object).fillna("—")
 
 
 def _labelled_in_test(table: pd.DataFrame, rows: pd.DataFrame) -> pd.Series:
@@ -343,8 +415,9 @@ def write_split_report(
     splits: SplitsConfig,
     rows: pd.DataFrame,
     tables: dict[str, pd.DataFrame],
-    cap: int | None,
+    caps: dict[str, int | None],
     low: dict[str, list[str]],
+    excluded: dict[str, list[int]],
 ) -> Path:
     """Write ``results/informe_particiones.md``."""
     by_label = rows[~rows["desconocido"] & ~rows["solo_evaluacion"]]
@@ -358,21 +431,30 @@ def write_split_report(
         labelled[protocol] = _labelled_in_test(table, rows)
     train_groups = train_groups.fillna(0).astype(int).rename_axis("etiqueta").reset_index()
     labelled = labelled.fillna(0).astype(int).rename_axis("etiqueta").reset_index()
-    mode = splits.balanceo.modo
-    balance = (
-        f"muestreo: como máximo {cap} grupos de train por etiqueta (val y test completos)"
-        if cap is not None
-        else "ponderación: todos los grupos; pesos en `pesos_<protocolo>.json`"
+    balance = splits.balanceo
+    cap_rule = (
+        "fijo"
+        if balance.max_bases_por_clase
+        else f"{balance.factor_mediana:g} × mediana de grupos de train"
     )
     sections = [
         "# Informe de particiones (Fase 7)",
-        f"Semilla {splits.semilla}; balanceo `{mode}` ({balance}); "
-        f"mínimo de grupos de train por etiqueta: {splits.minimo_por_clase_train}.",
+        f"Semilla {splits.semilla}. Balanceo `{balance.modo}`: como máximo "
+        f"`max_bases_por_clase` grupos de train por etiqueta "
+        f"({cap_rule}), y pesos de pérdida inversamente proporcionales a los grupos de "
+        "train restantes "
+        "(`balanceo_<protocolo>.json`). Val y test se conservan completos. Mínimo de grupos de "
+        f"train por etiqueta: {splits.minimo_por_clase_train}.",
     ]
     for protocol, table in tables.items():
-        sections += [f"## {protocol}", _markdown(_set_summary(table, rows).reset_index())]
+        cap = caps.get(protocol)
+        title = f"## {protocol}" + (f" (tope de train: {cap} grupos)" if cap else "")
+        sections += [title, _markdown(set_summary(table, rows).reset_index())]
         if low.get(protocol):
             sections.append(f"Etiquetas por debajo del mínimo: {', '.join(low[protocol])}.")
+        if protocol == "por_tamano" and excluded:
+            listed = "; ".join(f"`{k}` ({len(v)} tamaños: {v})" for k, v in excluded.items())
+            sections.append(f"Fuera del protocolo por tener menos de 3 tamaños: {listed}.")
     sections += [
         "## Grupos de train por etiqueta",
         _markdown(train_groups),

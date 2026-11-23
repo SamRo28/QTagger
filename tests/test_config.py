@@ -85,12 +85,10 @@ def test_splits_config_loads(splits_yaml: Path, dataset_yaml: Path) -> None:
     assert (splits.aleatorio.train, splits.aleatorio.val, splits.aleatorio.test) == pytest.approx(
         (0.70, 0.15, 0.15)
     )
-    assert (splits.por_tamano.train.min, splits.por_tamano.train.max) == (3, 16)
-    assert (splits.por_tamano.val.min, splits.por_tamano.val.max) == (17, 20)
-    assert (splits.por_tamano.test.min, splits.por_tamano.test.max) == (21, 30)
     assert splits.algoritmos_reservados == ("qwalk", "hrs_cumulative_multiplier", "hhl")
     assert splits.minimo_por_clase_train == 15
-    assert splits.balanceo.modo == "muestreo"
+    assert splits.balanceo.modo == "combinado"
+    assert splits.balanceo.factor_mediana == 3
     assert splits.balanceo.max_bases_por_clase is None
     assert splits.por_nivel.train == ("alg", "indep")
     assert splits.por_nivel.test == ("nativegates", "mapped")
@@ -201,8 +199,8 @@ def _fractions_not_summing_to_one(data: dict[str, Any]) -> None:
     data["aleatorio"]["train"] = 0.80
 
 
-def _overlapping_size_ranges(data: dict[str, Any]) -> None:
-    data["por_tamano"]["val"] = [16, 20]
+def _zero_factor(data: dict[str, Any]) -> None:
+    data["balanceo"]["factor_mediana"] = 0
 
 
 def _unknown_reserved_algorithm(data: dict[str, Any]) -> None:
@@ -225,7 +223,7 @@ def _level_in_train_and_test(data: dict[str, Any]) -> None:
     ("mutate", "message"),
     [
         (_fractions_not_summing_to_one, "add up to 1"),
-        (_overlapping_size_ranges, "overlap"),
+        (_zero_factor, "factor_mediana"),
         (_unknown_reserved_algorithm, "not_a_benchmark"),
         (_unknown_balancing_mode, "modo"),
         (_zero_cap, "max_bases_por_clase"),

@@ -264,13 +264,14 @@ def particiones(
     report = create_splits(dataset, split_config, force=forzar)
     created = ", ".join(report.created) or "none (use --forzar to rebuild)"
     typer.echo(f"\nProtocols created: {created}")
-    if report.cap is not None:
-        typer.echo(f"Train groups per label capped at {report.cap}")
     for protocol, table in report.tables.items():
         counts = table["conjunto"].value_counts().to_dict()
-        typer.echo(f"  {protocol}: {counts}")
+        cap = report.caps.get(protocol)
+        typer.echo(f"  {protocol}: {counts}" + (f" (train cap {cap} groups)" if cap else ""))
         if report.below_minimum.get(protocol):
             typer.echo(f"    below minimum: {', '.join(report.below_minimum[protocol])}")
+    for label, sizes in report.size_exclusions.items():
+        typer.echo(f"  por_tamano excludes {label}: only {len(sizes)} sizes {sizes}")
     typer.echo(f"\nReport: {report.report_path}")
 
 

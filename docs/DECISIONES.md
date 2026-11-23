@@ -87,17 +87,18 @@ Registro vivo de cómo se trabaja en este repositorio y de las decisiones que se
 | 2026-11-23 | 7 | `por_nivel`: train = niveles ALG+INDEP de los grupos de train; val = esos niveles de los grupos de val; test = NATIVEGATES+MAPPED de otros grupos | Un mismo grupo no puede estar en train y test | Mismo grupo en train (alg) y test (mapped) |
 | 2026-11-23 | 7 | `oraculos_no_vistos`: unidad de partición `oraculo_id` (`mqt:<group_id>` para los de MQT) | Ningún oráculo de test se ve en train | — |
 | 2026-11-23 | 7 | `abierto` = `aleatorio` (misma asignación y mismo muestreo) + desconocidos; `aleatorio` no incluye desconocidos | El plan define `abierto` como `aleatorio` más los desconocidos | — |
+| 2026-11-23 | 7 | `por_tamano` con cortes relativos por etiqueta: sus tamaños válidos ordenados se reparten 70/15/15 (al menos uno por conjunto); las etiquetas con menos de 3 tamaños se excluyen y se registran. Se eliminan los rangos fijos de `splits.yaml` | Los rangos fijos 3–16 / 21–30 dejaban 11 etiquetas bajo el mínimo y a Grover sin test | Rangos fijos de cúbits |
+| 2026-11-23 | 7 | Balanceo `combinado`: tope de train = 3 × mediana de grupos de train por etiqueta (por protocolo; `factor_mediana`) y pesos de pérdida inversamente proporcionales a los grupos de train restantes (media 1), en `balanceo_<protocolo>.json`; val y test completos | Recortar solo los extremos y compensar el resto en la pérdida | Solo muestreo con tope = mediana (39) |
+| 2026-11-23 | 7 | `familia:variacionales` (solo `bmw_quark_copula`) se acepta con 14 grupos de train, uno por debajo del mínimo | La cabeza de familia aprende "variacionales" también con qaoa, vqe_* y qnn | Excluirla o bajar el mínimo |
 
 ## Avisos pendientes
 
 - **DJ.** Hay 78 constantes, 229 lineales y 447 no lineales (los tamaños 2 y 3 solo
   admiten lineales). 45 grupos DJ lineal = BV se excluyen de ambas clases.
-- **Desequilibrio de clases.** Bases útiles entre 5 (`hrs_cumulative_multiplier`) y 778
-  (`dj`). Se resolverá en la Fase 7 con `balanceo` (muestreo o ponderación).
-- **Propuesta pendiente de decisión** (`results/informe_deduplicacion.md`): solo etiqueta
-  de familia para `bmw_quark_copula`, `draper_qft_adder`, `half_adder`, `modular_adder`,
-  `multiplier` y `rg_qft_multiplier` (menos de 22 bases útiles); ninguna fusión nueva supera
-  el 50 %.
+- **Desequilibrio de clases (resuelto en la Fase 7).** Bases útiles entre 5 y 778 por
+  etiqueta; se compensa con el balanceo combinado (tope 3 × mediana en train y pesos).
+- **Propuesta de clases (aplicada).** Solo etiqueta de familia para `bmw_quark_copula`,
+  `draper_qft_adder`, `half_adder`, `modular_adder`, `multiplier` y `rg_qft_multiplier`.
 - **Grover: tamaños con una sola construcción.** En 4, 6, 10, 16, 22… solo cabe una de las
   tres. Además, los descartes por `max_nodos` rompen el equilibrio en los tamaños grandes
   (b95 usa más cúbits de búsqueda y supera antes el límite): Grover propio llega a n = 13.
@@ -110,9 +111,5 @@ Registro vivo de cómo se trabaja en este repositorio y de las decisiones que se
 - **Evaluación: desgloses obligatorios.** Desglosar el acierto de `grover` por
   `construccion_mcx` y el de `dj` por `tipo_oraculo_dj`, para detectar si el modelo se apoya
   en la construcción o en la linealidad del oráculo.
-- **Por debajo del mínimo de train.** `familia:variacionales` (solo `bmw_quark_copula`) tiene
-  14 grupos de train (< 15) en `aleatorio`, `por_nivel` y `abierto`; en `por_tamano` lo están
-  11 etiquetas, porque el rango de train (3–16 cúbits) deja pocas bases por clase.
-- **`por_tamano` sin Grover en test.** Los Grover acaban en n = 13, así que no hay Grover en
-  test (21–30 cúbits) ni F7 de Grover en ese protocolo.
+- **Mínimo de train.** Solo `familia:variacionales` queda por debajo (14 < 15), aceptado.
 

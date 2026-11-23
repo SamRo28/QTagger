@@ -11,7 +11,6 @@ from collections import Counter
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from importlib.metadata import version
-from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -56,13 +55,12 @@ PATH_KEYS = (
 SPLITS_KEYS = (
     "semilla",
     "aleatorio",
-    "por_tamano",
     "algoritmos_reservados",
     "minimo_por_clase_train",
     "balanceo",
     "por_nivel",
 )
-BALANCING_MODES = ("muestreo", "ponderacion")
+BALANCING_MODES = ("muestreo", "ponderacion", "combinado")
 SPLIT_SETS = ("train", "val", "test")
 QISKIT_OPT_LEVELS = range(4)
 
@@ -194,15 +192,6 @@ class RandomSplitConfig:
 
 
 @dataclass(frozen=True)
-class SizeSplitConfig:
-    """Qubit ranges of the ``por_tamano`` protocol."""
-
-    train: SizeRange
-    val: SizeRange
-    test: SizeRange
-
-
-@dataclass(frozen=True)
 class LevelSplitConfig:
     """Levels used for training and testing in the ``por_nivel`` protocol."""
 
@@ -216,6 +205,7 @@ class BalancingConfig:
 
     modo: str
     max_bases_por_clase: int | None
+    factor_mediana: float
 
 
 @dataclass(frozen=True)
@@ -224,7 +214,6 @@ class SplitsConfig:
 
     semilla: int
     aleatorio: RandomSplitConfig
-    por_tamano: SizeSplitConfig
     algoritmos_reservados: tuple[str, ...]
     minimo_por_clase_train: int
     balanceo: BalancingConfig
@@ -325,20 +314,6 @@ def _parse_size_mapping(value: Any, ctx: str) -> SizeRange:
     low = _as_int(*_get(data, "min", ctx))
     high = _as_int(*_get(data, "max", ctx))
     return _size_range(low, high, ctx)
-
-
-def _parse_size_pair(value: Any, ctx: str) -> SizeRange:
-    """Parse a size range written as ``[a, b]``."""
-    if not isinstance(value, list) or len(value) != 2:
-        raise ConfigError(f"{ctx}: expected a [min, max] pair, got {value!r}")
-    low = _as_int(value[0], f"{ctx}[0]")
-    high = _as_int(value[1], f"{ctx}[1]")
-    return _size_range(low, high, ctx)
-
-
-# --------------------------------------------------------------------------------------------
-# dataset.yaml
-# --------------------------------------------------------------------------------------------
 
 
 def _parse_levels(value: Any, ctx: str) -> tuple[str, ...]:
@@ -529,18 +504,6 @@ def _parse_random_split(value: Any, ctx: str) -> RandomSplitConfig:
     return RandomSplitConfig(**fractions)
 
 
-def _parse_size_split(value: Any, ctx: str) -> SizeSplitConfig:
-    """Parse the ``por_tamano`` ranges and check that they do not overlap."""
-    data = _as_mapping(value, ctx)
-    _warn_unknown_keys(data, SPLIT_SETS, ctx)
-    ranges = {name: _parse_size_pair(*_get(data, name, ctx)) for name in SPLIT_SETS}
-    ordered = sorted(ranges.items(), key=lambda item: item[1].min)
-    for (name_a, a), (name_b, b) in pairwise(ordered):
-        if b.min <= a.max:
-            raise ConfigError(f"{ctx}: ranges '{name_a}' and '{name_b}' overlap")
-    return SizeSplitConfig(**ranges)
-
-
 def _parse_level_split(value: Any, ctx: str) -> LevelSplitConfig:
     """Parse ``por_nivel``: disjoint, valid level lists for train and test."""
     data = _as_mapping(value, ctx)
@@ -555,12 +518,20 @@ def _parse_level_split(value: Any, ctx: str) -> LevelSplitConfig:
 def _parse_balancing(value: Any, ctx: str) -> BalancingConfig:
     """Parse the ``balanceo`` section."""
     data = _as_mapping(value, ctx)
-    _warn_unknown_keys(data, ("modo", "max_bases_por_clase"), ctx)
+    _warn_unknown_keys(data, ("modo", "max_bases_por_clase", "factor_mediana"), ctx)
     mode = _as_str(*_get(data, "modo", ctx))
     if mode not in BALANCING_MODES:
         raise ConfigError(f"{ctx}[modo]: must be one of {list(BALANCING_MODES)}, got {mode!r}")
     cap = _as_optional_int(*_get(data, "max_bases_por_clase", ctx), minimum=1)
-    return BalancingConfig(modo=mode, max_bases_por_clase=cap)
+    factor = _as_positive_number(*_get(data, "factor_mediana", ctx))
+    return BalancingConfig(modo=mode, max_bases_por_clase=cap, factor_mediana=factor)
+
+
+def _as_positive_number(value: Any, ctx: str) -> float:
+    """Check that a value is a positive number."""
+    if isinstance(value, bool) or not isinstance(value, int | float) or value <= 0:
+        raise ConfigError(f"{ctx}: expected a positive number, got {value!r}")
+    return float(value)
 
 
 def _parse_splits(data: Mapping[str, Any], ctx: str) -> SplitsConfig:
@@ -569,7 +540,6 @@ def _parse_splits(data: Mapping[str, Any], ctx: str) -> SplitsConfig:
     return SplitsConfig(
         semilla=_as_int(*_get(data, "semilla", ctx), minimum=0),
         aleatorio=_parse_random_split(*_get(data, "aleatorio", ctx)),
-        por_tamano=_parse_size_split(*_get(data, "por_tamano", ctx)),
         algoritmos_reservados=_as_str_tuple(*_get(data, "algoritmos_reservados", ctx)),
         minimo_por_clase_train=_as_int(*_get(data, "minimo_por_clase_train", ctx), minimum=0),
         balanceo=_parse_balancing(*_get(data, "balanceo", ctx)),
@@ -590,17 +560,6 @@ def _check_splits_against_dataset(splits: SplitsConfig, dataset: DatasetConfig) 
     for name in dataset.reservados_sin_familia:
         if name not in splits.algoritmos_reservados:
             logger.warning("'%s' has no family but is not in algoritmos_reservados", name)
-    for name in SPLIT_SETS:
-        size_range = getattr(splits.por_tamano, name)
-        if size_range.min < dataset.tamanos.min or size_range.max > dataset.tamanos.max:
-            logger.warning(
-                "por_tamano[%s] = [%d, %d] exceeds the dataset sizes [%d, %d]",
-                name,
-                size_range.min,
-                size_range.max,
-                dataset.tamanos.min,
-                dataset.tamanos.max,
-            )
     return errors
 
 

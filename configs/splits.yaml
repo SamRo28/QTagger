@@ -3,14 +3,18 @@
 
 semilla: 42
 aleatorio: {train: 0.70, val: 0.15, test: 0.15}        # fractions of group_id, must sum to 1
-por_tamano: {train: [3, 16], val: [17, 20], test: [21, 30]}  # inclusive qubit ranges, disjoint
 por_nivel: {train: [alg, indep], test: [nativegates, mapped]}   # levels, deduplicated together
 algoritmos_reservados: [qwalk, hrs_cumulative_multiplier, hhl]   # never seen in training
 minimo_por_clase_train: 15   # unique base circuits (group_id) per class in train
 
-# Class balancing, applied to every class when the splits are built (no circuit is deleted).
+# Class balancing, applied to every label when the splits are built (no circuit is deleted;
+# val and test are always kept whole).
 balanceo:
-  modo: muestreo              # muestreo: sample at most max_bases_por_clase bases per class
-                              # ponderacion: keep every base, export per-class loss weights
-  max_bases_por_clase: null   # null = median of unique bases per class over the classes
-                              # not in variacionales_con_parametros
+  modo: combinado             # muestreo: cap the train groups of each label
+                              # ponderacion: keep every group, write per-class loss weights
+                              # combinado: cap the train groups and write weights for the rest
+  max_bases_por_clase: null   # cap on train groups per label; null = factor_mediana x median
+  factor_mediana: 3           # of the train groups per label (per protocol)
+
+# por_tamano uses relative cuts per label: its smallest 70 % of valid sizes go to train, the
+# next 15 % to val and the largest 15 % to test (fractions from `aleatorio`).

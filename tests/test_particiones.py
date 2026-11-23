@@ -1,5 +1,6 @@
 """Tests for the split protocols (Phase 7)."""
 
+import json
 import logging
 from dataclasses import replace
 from pathlib import Path
@@ -22,8 +23,11 @@ from qcclass.data.oraculos import generate_oracles
 from qcclass.data.particiones import (
     PROTOCOLS,
     TRAIN,
+    balance_path,
     candidate_rows,
     create_splits,
+    size_cuts,
+    size_exclusions,
     split_path,
 )
 from qcclass.formatos.construir import build_labelled_variants
@@ -114,6 +118,14 @@ def test_labelled_variants_follow_their_group_and_never_train(
     assert joined["solo_evaluacion"].any()
 
 
+def test_size_cuts_are_relative_per_label() -> None:
+    splits = load_splits_config(Path(__file__).resolve().parents[1] / "configs" / "splits.yaml")
+    assert size_cuts([5, 3], splits) is None
+    assert size_cuts([4, 2, 3], splits) == {2: "train", 3: "val", 4: "test"}
+    cuts = size_cuts(list(range(2, 22)), splits)  # 20 sizes: 14 / 3 / 3
+    assert [cuts[n] for n in range(2, 22)] == ["train"] * 14 + ["val"] * 3 + ["test"] * 3
+
+
 def test_size_and_level_protocols(
     dataset: tuple[DatasetConfig, SplitsConfig],
     created: dict[str, pd.DataFrame],
@@ -121,11 +133,15 @@ def test_size_and_level_protocols(
 ) -> None:
     _, splits = dataset
     by_size = _joined(created["por_tamano"], rows)
-    for name in ("train", "val", "test"):
-        size = getattr(splits.por_tamano, name)
-        assert (
-            by_size.loc[by_size["conjunto"] == name, "n_qubits"].between(size.min, size.max).all()
-        )
+    regular = by_size[~by_size["solo_evaluacion"]]
+    for label, group in regular.groupby("etiqueta"):
+        sizes = group.groupby("conjunto")["n_qubits"].agg(["min", "max"])
+        assert set(sizes.index) == {"train", "val", "test"}, label
+        assert sizes.loc["train", "max"] < sizes.loc["val", "min"], label
+        assert sizes.loc["val", "max"] < sizes.loc["test", "min"], label
+    excluded = size_exclusions(rows.reset_index(), splits)
+    assert "ghz" not in excluded
+    assert not set(excluded) & set(regular["etiqueta"])
     by_level = _joined(created["por_nivel"], rows)
     regular = by_level[~by_level["solo_evaluacion"]]
     assert set(regular.loc[regular["conjunto"] == "train", "nivel"]) <= {"alg", "indep"}
@@ -140,11 +156,25 @@ def test_unseen_oracles(created: dict[str, pd.DataFrame], rows: pd.DataFrame) ->
     assert not train & set(oracle[joined["conjunto"] == "test"])
 
 
-def test_balancing_caps_train_groups(created: dict[str, pd.DataFrame], rows: pd.DataFrame) -> None:
+def test_combined_balancing(
+    dataset: tuple[DatasetConfig, SplitsConfig],
+    created: dict[str, pd.DataFrame],
+    rows: pd.DataFrame,
+) -> None:
+    config, _ = dataset
+    balance = json.loads(balance_path(config, "aleatorio").read_text(encoding="utf-8"))
+    cap = balance["max_bases_por_clase"]
     joined = _joined(created["aleatorio"], rows)
-    train_groups = joined[joined["conjunto"] == "train"].groupby("etiqueta")["group_id"].nunique()
-    total_groups = rows[~rows["desconocido"]].groupby("etiqueta")["group_id"].nunique()
-    assert train_groups.max() < total_groups.max()  # dj/bv are capped
+    train = joined[(joined["conjunto"] == "train") & ~joined["solo_evaluacion"]]
+    assert train.groupby("etiqueta")["group_id"].nunique().max() <= cap
+    # weights are inversely proportional to the remaining train groups (mean 1)
+    weights = balance["pesos"]["algoritmo"]
+    class_groups = train[train["clase"] != ""].groupby("clase")["group_id"].nunique()
+    assert set(weights) == set(class_groups.index)
+    products = {weights[name] * class_groups[name] for name in weights}
+    assert max(products) == pytest.approx(min(products))
+    assert sum(weights.values()) / len(weights) == pytest.approx(1.0)
+    assert set(balance["pesos"]["familia"]) <= set(config.familias)
 
 
 def test_splits_are_created_once(
@@ -176,12 +206,14 @@ def test_minimum_warning(
 def test_weighting_mode_writes_weights(dataset: tuple[DatasetConfig, SplitsConfig]) -> None:
     config, splits = dataset
     weighted = replace(
-        splits, balanceo=BalancingConfig(modo="ponderacion", max_bases_por_clase=None)
+        splits,
+        balanceo=BalancingConfig(modo="ponderacion", max_bases_por_clase=None, factor_mediana=3),
     )
     report = create_splits(config, weighted, protocols=["aleatorio"], force=True)
-    assert report.cap is None
-    weights = pd.read_json(config.rutas.splits / "pesos_aleatorio.json")
-    assert {"algoritmo", "familia"} <= set(weights.columns)
+    assert report.caps["aleatorio"] is None
+    balance = json.loads(balance_path(config, "aleatorio").read_text(encoding="utf-8"))
+    assert balance["max_bases_por_clase"] is None
+    assert set(balance["pesos"]) == {"algoritmo", "familia"}
     create_splits(config, splits, protocols=["aleatorio"], force=True)  # restore
 
 
