@@ -15,7 +15,8 @@ Protocols:
 
 * ``aleatorio``: 70/15/15 of the groups of every label (stratified by label) with
   scikit-learn's ``GroupShuffleSplit`` in two stages.
-* ``por_tamano``: relative cuts per label: the smallest 70 % of its valid sizes go to train,
+* ``por_tamano``: relative cuts per label on the logical size of each group (canonical widths
+  of routed circuits can be larger): the smallest 70 % of its valid sizes go to train,
   the next 15 % to val and the largest 15 % to test (at least one size each); labels with
   fewer than three sizes are left out and logged.
 * ``oraculos_no_vistos``: oracle family only; the split unit is ``oraculo_id`` (the group
@@ -78,6 +79,11 @@ def candidate_rows(
     rows["desconocido"] = rows["algoritmo"].isin(sorted(unknown))
     rows["solo_evaluacion"] = rows["exclusion"] == LABELLED_VARIANT
     rows["n_qubits"] = rows["n_qubits"].astype(int)
+    # logical size of the group (raw rows): canonical widths can differ within a group, e.g.
+    # routed mapped circuits activate extra physical qubits
+    raw = metadata[metadata["variante_comp"] == ""]
+    logical = raw.groupby("group_id")["n_qubits"].first().astype(int)
+    rows["n_logico"] = rows["group_id"].map(logical).fillna(rows["n_qubits"]).astype(int)
     return rows
 
 
@@ -204,7 +210,7 @@ def size_cuts(sizes: Sequence[int], splits: SplitsConfig) -> dict[int, str] | No
 def size_exclusions(rows: pd.DataFrame, splits: SplitsConfig) -> dict[str, list[int]]:
     """Labels left out of ``por_tamano`` (fewer than three sizes) and their sizes."""
     known = rows[~rows["desconocido"] & ~rows["solo_evaluacion"]]
-    sizes = known.groupby("etiqueta")["n_qubits"].agg(lambda s: sorted(set(s)))
+    sizes = known.groupby("etiqueta")["n_logico"].agg(lambda s: sorted(set(s)))
     return {label: values for label, values in sizes.items() if size_cuts(values, splits) is None}
 
 
@@ -213,10 +219,10 @@ def _by_size(rows: pd.DataFrame, config: DatasetConfig, splits: SplitsConfig) ->
     known = rows[~rows["desconocido"]]
     for _, group in known.groupby("etiqueta", sort=True):
         training = group[~group["solo_evaluacion"]]
-        cuts = size_cuts(list(training["n_qubits"]), splits)
+        cuts = size_cuts(list(training["n_logico"]), splits)
         if cuts is None:
             continue
-        sets[group.index] = group["n_qubits"].map(cuts)
+        sets[group.index] = group["n_logico"].map(cuts)
     return sets
 
 

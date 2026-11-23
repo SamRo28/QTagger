@@ -15,7 +15,6 @@ if TYPE_CHECKING:
     from qcclass.config import DatasetConfig, SplitsConfig
     from qcclass.data.generar_mqt import GenerationReport
 
-NOT_IMPLEMENTED_MESSAGE = "no implementado"
 DEFAULT_DATASET_CONFIG = Path("configs/dataset.yaml")
 DEFAULT_SPLITS_CONFIG = Path("configs/splits.yaml")
 
@@ -28,11 +27,6 @@ app = typer.Typer(
 
 ConfigOption = Annotated[Path, typer.Option("--config", help="Dataset configuration file.")]
 SplitsOption = Annotated[Path, typer.Option("--splits", help="Split configuration file.")]
-
-
-def _not_implemented(command: str) -> None:
-    """Print the placeholder message for a pipeline step that is not implemented yet."""
-    typer.echo(f"{command}: {NOT_IMPLEMENTED_MESSAGE}")
 
 
 def _split_list(value: str | None) -> list[str] | None:
@@ -276,12 +270,72 @@ def particiones(
 
 
 @app.command()
-def calidad() -> None:
-    """Write the dataset quality report."""
-    _not_implemented("calidad")
+def calidad(
+    config: ConfigOption = DEFAULT_DATASET_CONFIG,
+    splits: SplitsOption = DEFAULT_SPLITS_CONFIG,
+) -> None:
+    """Write the dataset quality report and check metadata/files coherence."""
+    from qcclass.data.calidad import write_dataset_report
+
+    dataset = _load_dataset_config(config)
+    split_config = _load_splits_config(splits, dataset)
+    report = write_dataset_report(dataset, split_config)
+    failed = [check for check in report.checks if not check.ok]
+    typer.echo(f"\nQuality report: {report.path}")
+    typer.echo(f"Coherence checks: {len(report.checks) - len(failed)}/{len(report.checks)} ok")
+    for check in failed:
+        typer.echo(f"  {check.name}: {len(check.problems)} problems, e.g. {check.problems[:3]}")
+    if failed:
+        raise typer.Exit(code=1)
 
 
 @app.command()
-def todo() -> None:
-    """Run the whole pipeline in order."""
-    _not_implemented("todo")
+def todo(
+    config: ConfigOption = DEFAULT_DATASET_CONFIG,
+    splits: SplitsOption = DEFAULT_SPLITS_CONFIG,
+    procesos: Annotated[int, typer.Option(min=1, help="Number of worker processes.")] = 1,
+) -> None:
+    """Run the whole pipeline in order.
+
+    generar -> oraculos -> normalizar -> deduplicar -> formatos -> particiones -> calidad.
+    Every step is incremental; existing splits are kept (use ``particiones --forzar``).
+    """
+    steps = [
+        (
+            "generar",
+            lambda: generar(
+                config=config,
+                procesos=procesos,
+                algoritmos=None,
+                min_qubits=None,
+                max_qubits=None,
+                niveles=None,
+                forzar=False,
+            ),
+        ),
+        (
+            "oraculos",
+            lambda: oraculos(
+                config=config,
+                procesos=procesos,
+                algoritmos=None,
+                min_qubits=None,
+                max_qubits=None,
+                forzar=False,
+            ),
+        ),
+        (
+            "normalizar",
+            lambda: normalizar(config=config, procesos=procesos, niveles=None, forzar=False),
+        ),
+        (
+            "deduplicar",
+            lambda: deduplicar(config=config, splits=splits, procesos=procesos, forzar=False),
+        ),
+        ("formatos", lambda: formatos(config=config, splits=splits, procesos=procesos)),
+        ("particiones", lambda: particiones(config=config, splits=splits, forzar=False)),
+        ("calidad", lambda: calidad(config=config, splits=splits)),
+    ]
+    for number, (name, step) in enumerate(steps, start=1):
+        typer.echo(f"\n=== [{number}/{len(steps)}] {name} ===")
+        step()

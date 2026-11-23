@@ -35,8 +35,14 @@ The whole dataset is generated from the `mqt.bench` package and the configuratio
 nothing is downloaded and there are no manual steps.
 
 ```bash
-make dataset    # runs: qcclass todo
+make dataset        # runs: qcclass todo (generar -> ... -> calidad)
+make dataset-mini   # same pipeline on configs/dataset_mini.yaml (4 algorithms, 3-8 qubits),
+                    # written to data_mini/ and results_mini/
 ```
+
+Reports are written to `results/`: `informe_deduplicacion.md`, `informe_particiones.md` and
+`informe_dataset.md` (quality report with a coherence check between `metadata.csv` and the
+files on disk). Decisions that refine `PLAN.md` are logged in `docs/DECISIONES.md`.
 
 Individual steps are available as subcommands (`qcclass --help`): `generar`, `oraculos`,
 `normalizar`, `deduplicar`, `formatos`, `particiones`, `calidad`.
@@ -48,5 +54,5 @@ Individual steps are available as subcommands (`qcclass --help`): `generar`, `or
 ```bash
 make lint       # ruff check .
 make test       # pytest, skipping slow tests
-make test-all   # pytest, including slow integration tests
+make test-all   # pytest, including slow tests (notebook, whole pipeline)
 ```

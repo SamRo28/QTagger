@@ -11,6 +11,6 @@ Regenerate it with `make dataset`; delete it with `make clean-data`.
 | `graphs/` | `qcclass formatos` | F4 (gate DAG) and F5 (qubit interaction graph) |
 | `tokens/` | `qcclass formatos` | F6: gate token sequences and vocabulary |
 | `gate_labels/` | `qcclass formatos` | F7: per-gate block labels |
-| `splits/` | `qcclass particiones` | One CSV per split protocol (`id`, `conjunto`) |
+| `splits/` | `qcclass particiones` | One CSV per split protocol (`id`, `conjunto`, `solo_evaluacion`) and `balanceo_<protocolo>.json` (train cap and loss weights) |
 | `logs/` | all steps | `generacion_errores.csv`, `oraculos_errores.csv`, discarded circuits, conflicting duplicates |
 | `metadata.csv` | all steps | One row per circuit file |

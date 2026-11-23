@@ -644,8 +644,13 @@ def run_oracle_task(task: OracleTask, config: DatasetConfig) -> OracleResult:
 def select_oracle_algorithms(
     config: DatasetConfig, requested: Sequence[str] | None
 ) -> tuple[str, ...]:
-    """Oracle algorithms to generate: the requested ones (default all) that are classes."""
-    requested = list(requested) if requested else list(ORACLE_ALGORITHMS)
+    """Oracle algorithms to generate.
+
+    By default, every oracle algorithm that is a class of the configuration; explicitly
+    requested algorithms must have a generator and be classes.
+    """
+    if not requested:
+        return tuple(name for name in ORACLE_ALGORITHMS if name in config.all_algorithms)
     if unknown := [name for name in requested if name not in ORACLE_ALGORITHMS]:
         raise ValueError(f"no oracle generator for {unknown}; available: {ORACLE_ALGORITHMS}")
     if not_classes := [name for name in requested if name not in config.all_algorithms]:

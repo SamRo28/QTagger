@@ -90,6 +90,11 @@ Registro vivo de cómo se trabaja en este repositorio y de las decisiones que se
 | 2026-11-23 | 7 | `por_tamano` con cortes relativos por etiqueta: sus tamaños válidos ordenados se reparten 70/15/15 (al menos uno por conjunto); las etiquetas con menos de 3 tamaños se excluyen y se registran. Se eliminan los rangos fijos de `splits.yaml` | Los rangos fijos 3–16 / 21–30 dejaban 11 etiquetas bajo el mínimo y a Grover sin test | Rangos fijos de cúbits |
 | 2026-11-23 | 7 | Balanceo `combinado`: tope de train = 3 × mediana de grupos de train por etiqueta (por protocolo; `factor_mediana`) y pesos de pérdida inversamente proporcionales a los grupos de train restantes (media 1), en `balanceo_<protocolo>.json`; val y test completos | Recortar solo los extremos y compensar el resto en la pérdida | Solo muestreo con tope = mediana (39) |
 | 2026-11-23 | 7 | `familia:variacionales` (solo `bmw_quark_copula`) se acepta con 14 grupos de train, uno por debajo del mínimo | La cabeza de familia aprende "variacionales" también con qaoa, vqe_* y qnn | Excluirla o bajar el mínimo |
+| 2026-11-23 | 7 | `por_tamano` usa la anchura lógica del grupo (`n_logico`, la `n_qubits` de sus filas raw), no la anchura canónica de cada fila | En 258 grupos la versión mapped/nativegates tiene otra anchura canónica (el rutado activa cúbits físicos intermedios) y 50 grupos acababan en dos conjuntos | Anchura canónica por fila |
+| 2026-11-23 | 8 | `qcclass todo` encadena los 7 pasos; las particiones existentes se conservan (`particiones --forzar` para rehacerlas) y `calidad` termina con error si alguna comprobación de coherencia falla | Pipeline reproducible y que no oculte incoherencias | — |
+| 2026-11-23 | 8 | Coherencia: filas sin QASM/QPY, archivos sin fila, índices de F4/F5 frente a metadatos y a los `.pt`, F3/F6/F7 frente a metadatos, ids de particiones sin formatos y grupos en más de un conjunto | La fuga de `por_tamano` mostró que esta comprobación debe ser permanente | — |
+| 2026-11-23 | 8 | `configs/dataset_mini.yaml` + `splits_mini.yaml` (dj, grover, qft, ghz y randomcircuit, 3–8 cúbits) escriben en `data_mini/` y `results_mini/`; `make dataset-mini` y una prueba `slow` ejecutan el pipeline completo | No tocar el dataset completo al probar | — |
+| 2026-11-23 | 8 | `oraculos` sin `--algoritmos` genera solo los algoritmos de oráculo que son clases de la configuración | La configuración reducida no tiene bv ni simon | Error si falta alguno |
 
 ## Avisos pendientes
 
@@ -112,4 +117,7 @@ Registro vivo de cómo se trabaja en este repositorio y de las decisiones que se
   `construccion_mcx` y el de `dj` por `tipo_oraculo_dj`, para detectar si el modelo se apoya
   en la construcción o en la linealidad del oráculo.
 - **Mínimo de train.** Solo `familia:variacionales` queda por debajo (14 < 15), aceptado.
+- **Anchura de los circuitos `mapped`.** Tras quitar los cúbits inactivos, un circuito
+  `mapped` conserva los cúbits físicos que usa el rutado, que pueden ser más que los lógicos
+  (hasta 55 en `graphstate`). F3/F4/F5 ven esa anchura física; los protocolos usan la lógica.
 

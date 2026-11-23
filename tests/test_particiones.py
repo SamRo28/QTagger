@@ -24,6 +24,7 @@ from qcclass.data.particiones import (
     PROTOCOLS,
     TRAIN,
     balance_path,
+    build_protocol,
     candidate_rows,
     create_splits,
     size_cuts,
@@ -232,3 +233,18 @@ def test_labelled_variants_keep_their_exclusion_after_deduplication(
     metadata = read_table(config.rutas.metadata, METADATA_COLUMNS)
     labelled = metadata[metadata["variante_comp"] == "etiquetada"]
     assert len(labelled) and set(labelled["exclusion"]) == {"etiquetada"}
+
+
+def test_size_protocol_uses_the_logical_size_of_the_group(
+    dataset: tuple[DatasetConfig, SplitsConfig],
+) -> None:
+    """A routed mapped circuit wider than its group must not leave its group's set."""
+    config, splits = dataset
+    metadata = read_table(config.rutas.metadata, METADATA_COLUMNS)
+    rows = candidate_rows(config, splits, metadata)
+    target = rows[(rows["algoritmo"] == "ghz") & (rows["nivel"] == "nativegates")].iloc[0]
+    rows.loc[target.name, "n_qubits"] = 99  # as if routing had activated extra qubits
+    assert rows.loc[target.name, "n_logico"] != 99
+    split = build_protocol(rows, config, splits, "por_tamano")
+    joined = split.table.merge(rows[["id", "group_id"]], on="id")
+    assert (joined.groupby("group_id")["conjunto"].nunique() == 1).all()

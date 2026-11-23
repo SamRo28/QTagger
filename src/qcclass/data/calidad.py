@@ -218,3 +218,282 @@ def write_deduplication_report(
     path = config.rutas.resultados / DEDUP_REPORT_NAME
     write_text_atomic(text + "\n", path)
     return path
+
+
+# --------------------------------------------------------------------------------------------
+# Dataset quality report (Phase 8)
+# --------------------------------------------------------------------------------------------
+
+DATASET_REPORT_NAME = "informe_dataset.md"
+FIGURE_NAME = "distribucion_cubits_profundidad.png"
+MAX_EXAMPLES = 5
+
+
+@dataclass(frozen=True)
+class CoherenceCheck:
+    """Result of one consistency check between the metadata and the files on disk."""
+
+    name: str
+    problems: list[str]
+
+    @property
+    def ok(self) -> bool:
+        """True when nothing is wrong."""
+        return not self.problems
+
+
+def _relative_files(config: DatasetConfig, folder: Path, pattern: str) -> set[str]:
+    """Files under ``folder`` matching ``pattern``, as paths relative to ``rutas.raiz``."""
+    if not folder.is_dir():
+        return set()
+    return {path.relative_to(config.rutas.raiz).as_posix() for path in folder.rglob(pattern)}
+
+
+def _missing(config: DatasetConfig, paths: pd.Series) -> list[str]:
+    """Paths (relative to ``raiz``) whose QASM file or QPY twin does not exist."""
+    missing = []
+    for relative in paths:
+        qasm_file = config.rutas.raiz / relative
+        if not qasm_file.is_file() or not qasm_file.with_suffix(".qpy").is_file():
+            missing.append(relative)
+    return missing
+
+
+def _ids_check(name: str, expected: set[str], found: set[str]) -> CoherenceCheck:
+    """Compare two sets of identifiers."""
+    problems = [f"falta {i}" for i in sorted(expected - found)]
+    problems += [f"sobra {i}" for i in sorted(found - expected)]
+    return CoherenceCheck(name, problems)
+
+
+def coherence_checks(config: DatasetConfig, metadata: pd.DataFrame) -> list[CoherenceCheck]:
+    """Check that the metadata and the files on disk describe the same dataset."""
+    from qcclass.formatos.construir import DAG_DIR, FEATURES_FILE, QUBIT_DIR, TOKENS_FILE
+    from qcclass.formatos.grafo_dag import INDEX_FILE
+
+    raw = metadata[metadata["variante_comp"] == ""]
+    canonical = metadata[metadata["ruta_canonical"] != ""]
+    with_formats = canonical[canonical["exclusion"].isin(["", LABELLED_VARIANT])]
+    expected_ids = set(with_formats["id"])
+    raw_files = _relative_files(config, config.rutas.raw, "*.qasm")
+    canonical_files = _relative_files(config, config.rutas.canonical, "*.qasm")
+    checks = [
+        CoherenceCheck("raw: filas sin QASM o QPY", _missing(config, raw["ruta_raw"])),
+        CoherenceCheck(
+            "canonical: filas sin QASM o QPY", _missing(config, canonical["ruta_canonical"])
+        ),
+        CoherenceCheck("raw: archivos sin fila", sorted(raw_files - set(raw["ruta_raw"]))),
+        CoherenceCheck(
+            "canonical: archivos sin fila",
+            sorted(canonical_files - set(canonical["ruta_canonical"])),
+        ),
+    ]
+    for directory in (DAG_DIR, QUBIT_DIR):
+        folder = config.rutas.graphs / directory
+        index = folder / INDEX_FILE
+        listed = set(pd.read_csv(index, dtype=str)["id"]) if index.is_file() else set()
+        on_disk = {path.stem for path in folder.glob("*.pt")}
+        checks.append(_ids_check(f"{directory}: índice frente a metadatos", expected_ids, listed))
+        checks.append(_ids_check(f"{directory}: archivos .pt frente a índice", listed, on_disk))
+    features_file = config.rutas.features / FEATURES_FILE
+    features = (
+        set(pd.read_parquet(features_file, columns=["id"])["id"])
+        if features_file.is_file()
+        else set()
+    )
+    checks.append(_ids_check("F3: filas frente a metadatos", expected_ids, features))
+    tokens_file = config.rutas.tokens / TOKENS_FILE
+    tokens = set()
+    if tokens_file.is_file():
+        tokens = (
+            set(pd.read_json(tokens_file, lines=True)["id"])
+            if tokens_file.stat().st_size
+            else set()
+        )
+    checks.append(_ids_check("F6: secuencias frente a metadatos", expected_ids, tokens))
+    labelled = set(canonical.loc[canonical["variante_comp"] == LABELLED_VARIANT, "id"])
+    gate_labels = {path.stem for path in config.rutas.gate_labels.glob("*.json")}
+    checks.append(_ids_check("F7: etiquetas frente a variantes etiquetadas", labelled, gate_labels))
+    groups = metadata.set_index("id")["group_id"]
+    for split_file in sorted(config.rutas.splits.glob("*.csv")):
+        table = pd.read_csv(split_file, dtype=str)
+        checks.append(
+            CoherenceCheck(
+                f"particiones/{split_file.name}: ids sin formatos",
+                sorted(set(table["id"]) - expected_ids),
+            )
+        )
+        sets = table.assign(group_id=table["id"].map(groups)).groupby("group_id")["conjunto"]
+        leaked = sets.nunique()
+        checks.append(
+            CoherenceCheck(
+                f"particiones/{split_file.name}: grupos en más de un conjunto",
+                sorted(leaked[leaked > 1].index),
+            )
+        )
+    return checks
+
+
+def counts_before_after(canonical: pd.DataFrame, column: str) -> pd.DataFrame:
+    """Canonical circuits before deduplication and usable ones after, grouped by ``column``."""
+    canonical = canonical.assign(etiqueta=labels(canonical))
+    before = canonical.groupby(column).size().rename("antes")
+    after = canonical[canonical["exclusion"] == ""].groupby(column).size().rename("después")
+    table = pd.concat([before, after], axis=1).fillna(0).astype(int)
+    table["% conservado"] = (100 * table["después"] / table["antes"]).round(1)
+    return table.rename_axis(column).reset_index()
+
+
+def size_depth_table(rows: pd.DataFrame) -> pd.DataFrame:
+    """Qubits and depth per label of the usable circuits (min / median / max)."""
+    numeric = rows.assign(
+        n_qubits=rows["n_qubits"].astype(int), profundidad=rows["profundidad"].astype(int)
+    )
+    stats = numeric.groupby("etiqueta").agg(
+        circuitos=("id", "count"),
+        cubits_min=("n_qubits", "min"),
+        cubits_mediana=("n_qubits", "median"),
+        cubits_max=("n_qubits", "max"),
+        profundidad_min=("profundidad", "min"),
+        profundidad_mediana=("profundidad", "median"),
+        profundidad_max=("profundidad", "max"),
+    )
+    return stats.reset_index()
+
+
+def size_depth_figure(rows: pd.DataFrame, path: Path) -> Path:
+    """Box plots of qubits and depth per label (usable circuits)."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    labels_order = sorted(rows["etiqueta"].unique())
+    qubits = [rows.loc[rows["etiqueta"] == lab, "n_qubits"].astype(int) for lab in labels_order]
+    depth = [rows.loc[rows["etiqueta"] == lab, "profundidad"].astype(int) for lab in labels_order]
+    fig, axes = plt.subplots(1, 2, figsize=(12, 0.32 * len(labels_order) + 1.5), sharey=True)
+    axes[0].boxplot(qubits, orientation="horizontal", tick_labels=labels_order)
+    axes[0].set_xlabel("cúbits")
+    axes[1].boxplot(depth, orientation="horizontal", tick_labels=labels_order)
+    axes[1].set_xscale("log")
+    axes[1].set_xlabel("profundidad (escala log)")
+    fig.suptitle("Circuitos útiles por etiqueta")
+    fig.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=120)
+    plt.close(fig)
+    return path
+
+
+def _log_table(path: Path, rows: str, columns: str) -> pd.DataFrame | None:
+    """Crosstab of a CSV log, or None if the log does not exist or is empty."""
+    if not path.is_file():
+        return None
+    log = pd.read_csv(path, dtype=str, keep_default_na=False)
+    if not len(log):
+        return pd.DataFrame()
+    return pd.crosstab(log[rows], log[columns]).reset_index()
+
+
+@dataclass(frozen=True)
+class DatasetReport:
+    """Outcome of the quality step."""
+
+    path: Path
+    figure: Path
+    checks: list[CoherenceCheck]
+    below_minimum: dict[str, list[str]]
+
+    @property
+    def coherent(self) -> bool:
+        """True if every coherence check passed."""
+        return all(check.ok for check in self.checks)
+
+
+def _below_minimum(
+    config: DatasetConfig, splits: SplitsConfig, metadata: pd.DataFrame
+) -> dict[str, list[str]]:
+    """Labels below ``minimo_por_clase_train`` in each existing split protocol."""
+    from qcclass.data.particiones import PROTOCOLS, below_minimum, candidate_rows, split_path
+
+    rows = candidate_rows(config, splits, metadata)
+    result = {}
+    for protocol in PROTOCOLS:
+        path = split_path(config, protocol)
+        if path.is_file() and protocol != "oraculos_no_vistos":
+            table = pd.read_csv(path, dtype=str, keep_default_na=False)
+            result[protocol] = below_minimum(table, rows, splits.minimo_por_clase_train)
+    return result
+
+
+def write_dataset_report(config: DatasetConfig, splits: SplitsConfig) -> DatasetReport:
+    """Write ``results/informe_dataset.md`` and its figure."""
+    from qcclass.data.deduplicar import conflicts_path
+    from qcclass.data.generar_mqt import errors_path as generation_log
+    from qcclass.data.normalizar import log_path as normalization_log
+    from qcclass.data.oraculos import errors_path as oracle_log
+    from qcclass.metadatos import METADATA_COLUMNS, read_table
+
+    metadata = read_table(config.rutas.metadata, METADATA_COLUMNS)
+    canonical = metadata[
+        (metadata["ruta_canonical"] != "") & (metadata["variante_comp"] != LABELLED_VARIANT)
+    ]
+    rows = usable(canonical)
+    figure = size_depth_figure(rows, config.rutas.resultados / "figuras" / FIGURE_NAME)
+    checks = coherence_checks(config, metadata)
+    low = _below_minimum(config, splits, metadata)
+    sections = [
+        "# Informe de calidad del dataset (Fase 8)",
+        f"Circuitos raw: {int((metadata['variante_comp'] == '').sum())}; canónicos: "
+        f"{len(canonical)}; útiles tras deduplicar: {len(rows)}; variantes etiquetadas (F7): "
+        f"{int((metadata['variante_comp'] == LABELLED_VARIANT).sum())}. Detalle de la "
+        f"deduplicación en `{DEDUP_REPORT_NAME}` y de las particiones en "
+        "`informe_particiones.md`.",
+        "## Circuitos por etiqueta, antes y después de deduplicar",
+        _markdown(counts_before_after(canonical, "etiqueta")),
+        "## Por familia",
+        _markdown(counts_before_after(canonical, "familia")),
+        "## Por nivel",
+        _markdown(counts_before_after(canonical, "nivel")),
+        "## Cúbits y profundidad por etiqueta (circuitos útiles)",
+        f"![distribución](figuras/{FIGURE_NAME})",
+        _markdown(size_depth_table(rows)),
+        "## Etiquetas por debajo del mínimo de train",
+        "\n".join(f"- `{p}`: {', '.join(labs) if labs else 'ninguna'}" for p, labs in low.items())
+        or "Sin particiones creadas.",
+    ]
+    logs = [
+        ("Errores de generación (MQT Bench)", generation_log(config), "algoritmo", "tipo"),
+        ("Errores de los oráculos propios", oracle_log(config), "algoritmo", "tipo"),
+        ("Descartes de la normalización", normalization_log(config), "algoritmo", "tipo"),
+    ]
+    sections.append("## Errores y descartes")
+    for title, path, row_key, column_key in logs:
+        table = _log_table(path, row_key, column_key)
+        sections.append(f"### {title}")
+        if table is None:
+            sections.append("Sin registro.")
+        else:
+            sections.append(_markdown(table) if len(table) else "Ninguno.")
+    sections.append("### Duplicados conflictivos (excluidos de todas las clases implicadas)")
+    conflicts = conflicts_path(config)
+    if conflicts.is_file():
+        table = pd.read_csv(conflicts, dtype=str, keep_default_na=False)
+        sections.append(_markdown(_conflict_summary(table)) if len(table) else "Ninguno.")
+    else:
+        sections.append("Sin registro.")
+    sections += ["## Coherencia entre `metadata.csv` y los archivos"]
+    coherence = pd.DataFrame(
+        [
+            {
+                "comprobación": check.name,
+                "estado": "ok" if check.ok else f"{len(check.problems)} problemas",
+                "ejemplos": ", ".join(check.problems[:MAX_EXAMPLES]) or "—",
+            }
+            for check in checks
+        ]
+    )
+    sections.append(_markdown(coherence))
+    path = config.rutas.resultados / DATASET_REPORT_NAME
+    write_text_atomic("\n\n".join(sections) + "\n", path)
+    return DatasetReport(path, figure, checks, low)

@@ -14,7 +14,7 @@ from typer.testing import CliRunner
 
 from qcclass.circuitos import qpy_path, read_qpy
 from qcclass.cli import app
-from qcclass.config import DatasetConfig
+from qcclass.config import DatasetConfig, load_dataset_config
 from qcclass.data.oraculos import (
     ERROR_COLUMNS,
     MCX_B95,
@@ -30,6 +30,7 @@ from qcclass.data.oraculos import (
     grover,
     grover_constructions,
     mcx_ancillas,
+    select_oracle_algorithms,
     simon,
 )
 from qcclass.metadatos import METADATA_COLUMNS, read_table
@@ -229,3 +230,10 @@ def test_dj_balanced_mix_is_mostly_nonlinear() -> None:
     balanced = [k for k in kinds if k != "constante"]
     share = balanced.count("no_lineal") / len(balanced)
     assert 0.6 < share < 0.8
+
+
+def test_default_oracle_selection_follows_the_classes(repo_root: Path) -> None:
+    config = load_dataset_config(repo_root / "configs" / "dataset_mini.yaml")
+    assert select_oracle_algorithms(config, None) == ("dj", "grover")
+    with pytest.raises(ValueError, match="not class algorithms"):
+        select_oracle_algorithms(config, ["bv"])

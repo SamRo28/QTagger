@@ -1,0 +1,13 @@
+# Split configuration for dataset_mini.yaml (no reserved algorithms: the negative control
+# is the only "unknown").
+
+semilla: 42
+aleatorio: {train: 0.70, val: 0.15, test: 0.15}
+por_nivel: {train: [alg, indep], test: [nativegates, mapped]}
+algoritmos_reservados: []
+minimo_por_clase_train: 3
+
+balanceo:
+  modo: combinado
+  max_bases_por_clase: null
+  factor_mediana: 3

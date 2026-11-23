@@ -1,0 +1,46 @@
+# Reduced configuration for quick end-to-end runs (`make dataset-mini`) and the slow
+# integration test: 4 algorithms, 3-8 qubits. It writes to data_mini/ and results_mini/,
+# so it never touches the full dataset.
+
+semilla_global: 42
+tamanos: {min: 3, max: 8}
+niveles: [alg, indep, nativegates, mapped]
+nativegates: {gateset: ibm_heron}
+mapped: {dispositivo: ibm_heron_156}
+opt_level: 2
+niveles_opt_compilacion: [1, 0, 2]
+variantes_parametros: 5
+max_nodos: 20000
+
+familias:
+  oraculos: [dj, grover]
+  qft_fase: [qft]
+  preparacion_estados: [ghz]
+
+control_negativo: [randomcircuit]
+reservados_sin_familia: []
+excluidos: [dynamic_qft, ghz_dynamic, iqpe, mlqae, quantum_metropolis,
+            seven_qubit_steane_code, shors_nine_qubit_code, teleportation, shor]
+variacionales_con_parametros: []
+
+etiquetas:
+  fusiones: {}
+  solo_familia: []
+  clase_propia_con_minimo: []
+  minimo_bases_clase_propia: 22
+
+oraculos:
+  por_tamano: 3
+
+rutas:
+  raiz: ..
+  raw: data_mini/raw
+  canonical: data_mini/canonical
+  features: data_mini/features
+  graphs: data_mini/graphs
+  tokens: data_mini/tokens
+  gate_labels: data_mini/gate_labels
+  splits: data_mini/splits
+  logs: data_mini/logs
+  metadata: data_mini/metadata.csv
+  resultados: results_mini

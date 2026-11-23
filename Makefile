@@ -1,9 +1,12 @@
 PYTHON_BOOTSTRAP ?= python3.13
+CONFIG ?= configs/dataset.yaml
+SPLITS ?= configs/splits.yaml
+PROCESOS ?= 4
 VENV ?= .venv
 PYTHON := $(VENV)/bin/python
 BIN := $(VENV)/bin
 
-.PHONY: install lock lint test test-all dataset clean-data
+.PHONY: install lock lint test test-all dataset dataset-mini clean-data
 
 $(PYTHON):
 	$(PYTHON_BOOTSTRAP) -m venv $(VENV)
@@ -29,9 +32,13 @@ test:
 test-all:
 	$(BIN)/pytest
 
-## dataset: run the whole pipeline
+## dataset: run the whole pipeline (override CONFIG, SPLITS, PROCESOS)
 dataset:
-	$(BIN)/qcclass todo
+	$(BIN)/qcclass todo --config $(CONFIG) --splits $(SPLITS) --procesos $(PROCESOS)
+
+## dataset-mini: whole pipeline on the reduced configuration (writes data_mini/, results_mini/)
+dataset-mini:
+	$(MAKE) dataset CONFIG=configs/dataset_mini.yaml SPLITS=configs/splits_mini.yaml
 
 ## clean-data: delete every generated (git-ignored) file under data/, keeping data/README.md
 clean-data:
