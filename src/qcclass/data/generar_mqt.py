@@ -21,8 +21,8 @@ listed in the metadata, unless ``force`` is set.
 
 import logging
 from collections.abc import Sequence
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 
 import pandas as pd
@@ -30,17 +30,18 @@ from mqt.bench import BenchmarkLevel, get_benchmark
 from mqt.bench.targets import get_device, get_target_for_gateset
 from qiskit import QuantumCircuit
 from qiskit.transpiler import Target
-from tqdm import tqdm
 
-from qcclass.circuitos import count_gates, is_dynamic, write_qasm
+from qcclass.circuitos import count_gates, is_dynamic, qpy_path, write_circuit
 from qcclass.config import DatasetConfig
 from qcclass.metadatos import METADATA_COLUMNS, read_table, replace_scope, upsert
+from qcclass.paralelo import run_tasks
 from qcclass.semillas import derive_seed
 
 logger = logging.getLogger(__name__)
 
 ORIGIN = "mqt"
 NEGATIVE_CONTROL_FAMILY = "control_negativo"
+NO_FAMILY = "sin_familia"
 ERRORS_FILE_NAME = "generacion_errores.csv"
 ALL_LEVELS = "todos"
 PROBE_LEVEL = "nativegates"
@@ -112,9 +113,14 @@ class GenerationReport:
 
 
 def generatable_algorithms(config: DatasetConfig) -> dict[str, str]:
-    """Map every benchmark to generate (classes and negative control) to its family."""
+    """Map every benchmark to generate to its family.
+
+    Classes keep their family; the negative control and the family-less reserved
+    algorithms get the pseudo-families ``control_negativo`` and ``sin_familia``.
+    """
     families = {name: family for family, names in config.familias.items() for name in names}
     families.update(dict.fromkeys(config.control_negativo, NEGATIVE_CONTROL_FAMILY))
+    families.update(dict.fromkeys(config.reservados_sin_familia, NO_FAMILY))
     return families
 
 
@@ -298,6 +304,11 @@ def _build_level(
     )
 
 
+def _raw_files_exist(qasm_file: Path) -> bool:
+    """True if both the QASM file and its QPY twin exist."""
+    return qasm_file.is_file() and qpy_path(qasm_file).is_file()
+
+
 def _pending_levels(config: DatasetConfig, base: _Base) -> list[str]:
     """Levels of a base circuit that still have to be written."""
     task = base.task
@@ -306,7 +317,7 @@ def _pending_levels(config: DatasetConfig, base: _Base) -> list[str]:
         for level in task.levels
         if task.force
         or circuit_id(level, base.group) not in task.existing_ids
-        or not raw_path(config, level, task.family, task.algorithm, base.group).is_file()
+        or not _raw_files_exist(raw_path(config, level, task.family, task.algorithm, base.group))
     ]
 
 
@@ -334,7 +345,7 @@ def _write_level(
         return
     path = raw_path(config, level, base.task.family, base.task.algorithm, base.group)
     try:
-        write_qasm(circuit, path)
+        write_circuit(circuit, path)
     except Exception as exc:
         result.errors.append(_error_row(base, level, ERROR_EXPORT, exc))
         return
@@ -399,23 +410,6 @@ def run_task(task: Task, config: DatasetConfig) -> TaskResult:
 # --------------------------------------------------------------------------------------------
 
 
-def _run_tasks(tasks: list[Task], config: DatasetConfig, processes: int) -> list[TaskResult]:
-    """Run the tasks sequentially or in a process pool, with a progress bar."""
-    results = []
-    with tqdm(total=len(tasks), desc="generar", unit="task") as progress:
-        if processes <= 1:
-            for task in tasks:
-                results.append(run_task(task, config))
-                progress.update()
-        else:
-            with ProcessPoolExecutor(max_workers=processes) as pool:
-                futures = [pool.submit(run_task, task, config) for task in tasks]
-                for future in as_completed(futures):
-                    results.append(future.result())
-                    progress.update()
-    return results
-
-
 def errors_path(config: DatasetConfig) -> Path:
     """Location of the generation error log."""
     return config.rutas.logs / ERRORS_FILE_NAME
@@ -430,7 +424,10 @@ def existing_circuit_ids(config: DatasetConfig) -> frozenset[str]:
 def generate(
     config: DatasetConfig, selection: Selection, *, force: bool = False, processes: int = 1
 ) -> GenerationReport:
-    """Generate the selected circuits, update the metadata and the error log."""
+    """Generate the selected circuits, update the metadata and the error log.
+
+    Every circuit is kept on disk; class balancing happens in the split step (Phase 7).
+    """
     tasks = build_tasks(config, selection, existing_circuit_ids(config), force)
     logger.info(
         "generating %d algorithms, sizes %d-%d, levels %s (%d tasks)",
@@ -440,7 +437,7 @@ def generate(
         ",".join(selection.levels),
         len(tasks),
     )
-    results = _run_tasks(tasks, config, processes)
+    results = run_tasks(partial(run_task, config=config), tasks, processes, "generar")
     rows = pd.DataFrame([row for r in results for row in r.rows], columns=METADATA_COLUMNS)
     errors = pd.DataFrame([row for r in results for row in r.errors], columns=ERROR_COLUMNS)
     if len(rows):
@@ -451,4 +448,4 @@ def generate(
     logger.info(
         "%d circuits written, %d already present, %d errors", len(rows), skipped, len(errors)
     )
-    return GenerationReport(rows=rows, errors=errors, skipped=skipped)
+    return GenerationReport(rows, errors, skipped)

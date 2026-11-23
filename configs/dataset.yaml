@@ -8,7 +8,10 @@ niveles: [alg, indep, nativegates, mapped]
 nativegates: {gateset: ibm_heron}       # mqt.bench 2.4.0 has no ibm_falcon; Heron natives: rz, sx, x, cz
 mapped: {dispositivo: ibm_heron_156}    # 156-qubit heavy-hex device, covers the whole size range
 opt_level: 2
-variantes_compilacion: 3                # distinct transpiler seeds per base circuit (alg/indep only)
+niveles_opt_compilacion: [1, 0, 2]      # optimisation level of each compilation variant c0, c1, ...
+                                        # (alg/indep); nativegates/mapped only use c0.
+                                        # Seeds are useless here: without a coupling map
+                                        # transpile is deterministic.
 variantes_parametros: 5                 # random parameter instances (variational benchmarks only)
 max_nodos: 20000                        # discard circuits with more gates
 
@@ -21,10 +24,10 @@ familias:
   variacionales: [qaoa, vqe_real_amp, vqe_su2, vqe_two_local, qnn,
                   bmw_quark_cardinality, bmw_quark_copula]
   preparacion_estados: [ghz, wstate, graphstate, bell]
-  simulacion: [qwalk]
   protocolos: [superdense_coding]
 
 control_negativo: [randomcircuit]       # never a class; used as "unknown"
+reservados_sin_familia: [qwalk]         # generated with no family; only used as "unknown"
 
 # Benchmarks left out of the dataset (mqt.bench 2.4.0):
 excluidos:
@@ -41,6 +44,10 @@ excluidos:
   - shor
 
 variacionales_con_parametros: [qaoa, vqe_real_amp, vqe_su2, vqe_two_local, qnn]
+
+# In-house oracle circuits (dj, bv, simon, grover); see qcclass.data.oraculos.
+oraculos:
+  por_tamano: 20                        # distinct oracles per size (fewer if fewer exist)
 
 # Dataset locations. `raiz` is relative to this file's directory; every other entry is
 # relative to `raiz` (absolute paths are used as they are).

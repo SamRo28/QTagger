@@ -24,6 +24,15 @@ METADATA_COLUMNS = (
     "origen",
     "group_id",
     "ruta_raw",
+    "oraculo_id",
+    "construccion_mcx",
+    "ruta_canonical",
+    "opt_level_comp",
+    "n_puertas",
+    "profundidad",
+    "huella_sha",
+    "huella_wl",
+    "duplicado_de",
 )
 
 
@@ -43,7 +52,7 @@ def write_table(table: pd.DataFrame, path: Path) -> None:
 
 def _as_text(table: pd.DataFrame) -> pd.DataFrame:
     """Convert every value to text, so that rows read from disk and new rows compare equal."""
-    return table.fillna("").astype(str)
+    return table.astype(object).fillna("").astype(str)
 
 
 def _ordered_columns(columns: Sequence[str], *tables: pd.DataFrame) -> list[str]:
@@ -92,3 +101,11 @@ def replace_scope(
     merged = merged.sort_values(list(scope_columns), kind="stable").reset_index(drop=True)
     write_table(merged, path)
     return merged
+
+
+def drop_ids(path: Path, ids: set[str], columns: Sequence[str], key: str = "id") -> pd.DataFrame:
+    """Remove the rows whose ``key`` is in ``ids``."""
+    current = read_table(path, columns)
+    kept = current[~current[key].isin(list(ids))].reset_index(drop=True)
+    write_table(kept, path)
+    return kept

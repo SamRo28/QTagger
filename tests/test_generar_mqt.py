@@ -8,7 +8,7 @@ import pytest
 from qiskit import qasm3
 from typer.testing import CliRunner
 
-from qcclass.circuitos import active_qubits
+from qcclass.circuitos import active_qubits, qpy_path, read_qpy
 from qcclass.cli import app
 from qcclass.config import DatasetConfig
 from qcclass.data.generar_mqt import (
@@ -153,3 +153,25 @@ def test_cli_quick_generation(make_config: ConfigFactory, tmp_path: Path) -> Non
     assert result.exit_code == 0, result.output
     assert "Circuits written: 40" in result.output
     assert (tmp_path / "data" / "metadata.csv").is_file()
+
+
+def test_every_raw_circuit_has_a_qpy_twin(make_config: ConfigFactory) -> None:
+    """QPY is lossless: same gate names as the source, and mapped circuits keep their width."""
+    config = make_config()
+    _generate(config, ["ae"], 3, 3)
+    for row in _metadata(config).itertuples():
+        qasm_file = config.rutas.raiz / row.ruta_raw
+        circuit = read_qpy(qpy_path(qasm_file))
+        if row.nivel == "mapped":
+            assert circuit.num_qubits == 156
+            assert active_qubits(circuit) == int(row.n_qubits)
+        else:
+            assert circuit.num_qubits == int(row.n_qubits)
+    alg = read_qpy(config.rutas.raw / "alg" / "qft_fase" / "ae" / "ae_n3_p0.qpy")
+    assert "c-unitary" in alg.count_ops()  # original block name, not the exporter's alias
+
+
+def test_family_less_reserved_algorithm(make_config: ConfigFactory) -> None:
+    config = make_config()
+    _generate(config, ["qwalk"], 3, 3)
+    assert set(_metadata(config)["familia"]) == {"sin_familia"}

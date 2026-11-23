@@ -5,12 +5,12 @@ Regenerate it with `make dataset`; delete it with `make clean-data`.
 
 | Path | Produced by | Content |
 |---|---|---|
-| `raw/` | `qcclass generar`, `qcclass oraculos` | F1: OpenQASM 3 circuits as produced by the source |
+| `raw/` | `qcclass generar`, `qcclass oraculos` | F1: circuits as produced by the source, as readable OpenQASM 3 (`.qasm`) plus a lossless QPY twin (`.qpy`) that later steps read |
 | `canonical/` | `qcclass normalizar` | F2: circuits flattened to `rz`, `sx`, `x`, `cx` |
 | `features/` | `qcclass formatos` | F3: global feature vectors |
 | `graphs/` | `qcclass formatos` | F4 (gate DAG) and F5 (qubit interaction graph) |
 | `tokens/` | `qcclass formatos` | F6: gate token sequences and vocabulary |
 | `gate_labels/` | `qcclass formatos` | F7: per-gate block labels |
 | `splits/` | `qcclass particiones` | One CSV per split protocol (`id`, `conjunto`) |
-| `logs/` | all steps | Generation errors, discarded circuits, conflicting duplicates |
+| `logs/` | all steps | `generacion_errores.csv`, `oraculos_errores.csv`, discarded circuits, conflicting duplicates |
 | `metadata.csv` | all steps | One row per circuit file |

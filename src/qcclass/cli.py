@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
 NOT_IMPLEMENTED_MESSAGE = "no implementado"
 DEFAULT_DATASET_CONFIG = Path("configs/dataset.yaml")
+DEFAULT_SPLITS_CONFIG = Path("configs/splits.yaml")
 
 app = typer.Typer(
     name="qcclass",
@@ -25,6 +26,7 @@ app = typer.Typer(
 )
 
 ConfigOption = Annotated[Path, typer.Option("--config", help="Dataset configuration file.")]
+SplitsOption = Annotated[Path, typer.Option("--splits", help="Split configuration file.")]
 
 
 def _not_implemented(command: str) -> None:
@@ -114,21 +116,101 @@ def generar(
 
 
 @app.command()
-def oraculos() -> None:
+def oraculos(
+    config: ConfigOption = DEFAULT_DATASET_CONFIG,
+    algoritmos: Annotated[
+        str | None, typer.Option(help="Comma-separated subset of dj,bv,simon,grover.")
+    ] = None,
+    min_qubits: Annotated[
+        int | None, typer.Option("--min", help="Smallest size (default: tamanos.min).")
+    ] = None,
+    max_qubits: Annotated[
+        int | None, typer.Option("--max", help="Largest size (default: tamanos.max).")
+    ] = None,
+    forzar: Annotated[bool, typer.Option("--forzar", help="Regenerate existing files.")] = False,
+    procesos: Annotated[int, typer.Option(min=1, help="Number of worker processes.")] = 1,
+) -> None:
     """Generate the in-house oracle circuits (dj, bv, simon, grover)."""
-    _not_implemented("oraculos")
+    import pandas as pd
+
+    from qcclass.data.oraculos import generate_oracles, select_oracle_algorithms
+
+    dataset = _load_dataset_config(config)
+    low = dataset.tamanos.min if min_qubits is None else min_qubits
+    high = dataset.tamanos.max if max_qubits is None else max_qubits
+    try:
+        if low < 1 or low > high:
+            raise ValueError(f"invalid size range [{low}, {high}]")
+        algorithms = select_oracle_algorithms(dataset, _split_list(algoritmos))
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    report = generate_oracles(
+        dataset, algorithms, range(low, high + 1), force=forzar, processes=procesos
+    )
+    typer.echo(f"\nOracle circuits written: {len(report.rows)} (already present: {report.skipped})")
+    if len(report.rows):
+        sizes = report.rows.groupby("algoritmo")["n_qubits"]
+        summary = pd.DataFrame(
+            {"circuits": sizes.size(), "sizes": sizes.nunique(), "max_n": sizes.max()}
+        )
+        typer.echo(summary.to_string())
+    typer.echo(f"\nErrors: {len(report.errors)}")
+    if len(report.errors):
+        typer.echo(pd.crosstab(report.errors["algoritmo"], report.errors["tipo"]).to_string())
 
 
 @app.command()
-def normalizar() -> None:
+def normalizar(
+    config: ConfigOption = DEFAULT_DATASET_CONFIG,
+    niveles: Annotated[
+        str | None, typer.Option(help="Comma-separated levels (default: all).")
+    ] = None,
+    forzar: Annotated[bool, typer.Option("--forzar", help="Regenerate existing files.")] = False,
+    procesos: Annotated[int, typer.Option(min=1, help="Number of worker processes.")] = 1,
+) -> None:
     """F2: flatten and normalise raw circuits to the canonical gate set."""
-    _not_implemented("normalizar")
+    import pandas as pd
+
+    from qcclass.data.normalizar import normalize
+
+    dataset = _load_dataset_config(config)
+    report = normalize(dataset, levels=_split_list(niveles), force=forzar, processes=procesos)
+    typer.echo(
+        f"\nCanonical circuits written: {len(report.rows)} (already present: {report.skipped})"
+    )
+    typer.echo(f"Discarded: {len(report.log)}")
+    if len(report.log):
+        typer.echo(pd.crosstab(report.log["algoritmo"], report.log["tipo"]).to_string())
 
 
 @app.command()
-def deduplicar() -> None:
-    """Detect duplicated canonical circuits."""
-    _not_implemented("deduplicar")
+def deduplicar(
+    config: ConfigOption = DEFAULT_DATASET_CONFIG,
+    splits: SplitsOption = DEFAULT_SPLITS_CONFIG,
+    forzar: Annotated[bool, typer.Option("--forzar", help="Recompute every fingerprint.")] = False,
+    procesos: Annotated[int, typer.Option(min=1, help="Number of worker processes.")] = 1,
+) -> None:
+    """Detect duplicated canonical circuits and write the deduplication report."""
+    from qcclass.config import ConfigError, load_splits_config
+    from qcclass.data.calidad import (
+        unique_canonical,
+        unique_per_class_and_level,
+        write_deduplication_report,
+    )
+    from qcclass.data.deduplicar import deduplicate
+
+    dataset = _load_dataset_config(config)
+    try:
+        split_config = load_splits_config(splits, dataset=dataset)
+    except ConfigError as exc:
+        typer.echo(f"Configuration error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    report = deduplicate(dataset, force=forzar, processes=procesos)
+    unique = unique_canonical(report.canonical)
+    typer.echo(f"\nUnique canonical circuits: {len(unique)} of {len(report.canonical)}")
+    typer.echo(unique_per_class_and_level(unique).to_string())
+    path = write_deduplication_report(dataset, split_config, report.canonical, report.conflicts)
+    typer.echo(f"\nReport: {path}")
 
 
 @app.command()

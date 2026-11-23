@@ -1,11 +1,19 @@
 """Tests for the shared circuit utilities and seed derivation."""
 
+import io
+
 import pytest
 from mqt.bench import BenchmarkLevel, get_benchmark
-from qiskit import QuantumCircuit, qasm3
+from qiskit import QuantumCircuit, qasm3, qpy
 from qiskit.quantum_info import Operator
 
-from qcclass.circuitos import active_qubits, count_gates, is_dynamic, make_exportable
+from qcclass.circuitos import (
+    active_qubits,
+    count_gates,
+    is_dynamic,
+    make_exportable,
+    qpy_bytes,
+)
 from qcclass.semillas import derive_seed
 
 
@@ -52,3 +60,16 @@ def test_make_exportable_keeps_ae_equivalent() -> None:
 def test_make_exportable_returns_plain_circuits_unchanged() -> None:
     circuit = get_benchmark("ghz", BenchmarkLevel.ALG, 3)
     assert make_exportable(circuit) is circuit
+
+
+@pytest.mark.parametrize(
+    ("name", "n"), [("full_adder", 4), ("half_adder", 5), ("modular_adder", 4), ("multiplier", 4)]
+)
+def test_qpy_round_trip_of_library_gates(name: str, n: int) -> None:
+    """Qiskit 2.6 cannot read back some library gates from QPY; qpy_bytes works around it."""
+    circuit = get_benchmark(name, BenchmarkLevel.ALG, n)
+    loaded = qpy.load(io.BytesIO(qpy_bytes(circuit)))[0]
+    assert [i.operation.name for i in loaded.data] == [i.operation.name for i in circuit.data]
+    body_a = circuit.remove_final_measurements(inplace=False)
+    body_b = loaded.remove_final_measurements(inplace=False)
+    assert Operator(body_a).equiv(Operator(body_b))

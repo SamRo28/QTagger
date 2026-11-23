@@ -29,13 +29,15 @@ DATASET_KEYS = (
     "nativegates",
     "mapped",
     "opt_level",
-    "variantes_compilacion",
+    "niveles_opt_compilacion",
     "variantes_parametros",
     "max_nodos",
     "familias",
     "control_negativo",
+    "reservados_sin_familia",
     "excluidos",
     "variacionales_con_parametros",
+    "oraculos",
     "rutas",
 )
 PATH_KEYS = (
@@ -56,7 +58,9 @@ SPLITS_KEYS = (
     "por_tamano",
     "algoritmos_reservados",
     "minimo_por_clase_train",
+    "balanceo",
 )
+BALANCING_MODES = ("muestreo", "ponderacion")
 SPLIT_SETS = ("train", "val", "test")
 QISKIT_OPT_LEVELS = range(4)
 
@@ -93,6 +97,13 @@ class MappedConfig:
 
 
 @dataclass(frozen=True)
+class OraclesConfig:
+    """Options for the in-house oracle circuits."""
+
+    por_tamano: int
+
+
+@dataclass(frozen=True)
 class PathsConfig:
     """Absolute dataset locations, resolved from the ``rutas`` section."""
 
@@ -119,13 +130,15 @@ class DatasetConfig:
     nativegates: NativeGatesConfig
     mapped: MappedConfig
     opt_level: int
-    variantes_compilacion: int
+    niveles_opt_compilacion: tuple[int, ...]
     variantes_parametros: int
     max_nodos: int
     familias: Mapping[str, tuple[str, ...]]
     control_negativo: tuple[str, ...]
+    reservados_sin_familia: tuple[str, ...]
     excluidos: tuple[str, ...]
     variacionales_con_parametros: tuple[str, ...]
+    oraculos: OraclesConfig
     rutas: PathsConfig
 
     @property
@@ -139,6 +152,7 @@ class DatasetConfig:
         names = (
             *self.all_algorithms,
             *self.control_negativo,
+            *self.reservados_sin_familia,
             *self.excluidos,
             *self.variacionales_con_parametros,
         )
@@ -176,6 +190,14 @@ class SizeSplitConfig:
 
 
 @dataclass(frozen=True)
+class BalancingConfig:
+    """Class balancing applied when building the splits."""
+
+    modo: str
+    max_bases_por_clase: int | None
+
+
+@dataclass(frozen=True)
 class SplitsConfig:
     """Contents of ``configs/splits.yaml``."""
 
@@ -184,6 +206,7 @@ class SplitsConfig:
     por_tamano: SizeSplitConfig
     algoritmos_reservados: tuple[str, ...]
     minimo_por_clase_train: int
+    balanceo: BalancingConfig
 
 
 # --------------------------------------------------------------------------------------------
@@ -230,6 +253,11 @@ def _as_int(value: Any, ctx: str, minimum: int | None = None) -> int:
     if minimum is not None and value < minimum:
         raise ConfigError(f"{ctx}: must be >= {minimum}, got {value}")
     return value
+
+
+def _as_optional_int(value: Any, ctx: str, minimum: int | None = None) -> int | None:
+    """Like ``_as_int`` but ``null`` is allowed."""
+    return None if value is None else _as_int(value, ctx, minimum)
 
 
 def _as_fraction(value: Any, ctx: str) -> float:
@@ -321,6 +349,25 @@ def _parse_paths(value: Any, ctx: str, config_dir: Path) -> PathsConfig:
     return PathsConfig(raiz=root, **entries)
 
 
+def _parse_opt_levels(value: Any, ctx: str) -> tuple[int, ...]:
+    """Parse the transpiler optimisation level of each compilation variant (c0, c1, ...)."""
+    if not isinstance(value, list) or not value:
+        raise ConfigError(f"{ctx}: expected a non-empty list, got {value!r}")
+    levels = tuple(_as_int(level, f"{ctx}[{i}]") for i, level in enumerate(value))
+    if invalid := [level for level in levels if level not in QISKIT_OPT_LEVELS]:
+        raise ConfigError(f"{ctx}: invalid optimisation levels {invalid}")
+    if len(set(levels)) != len(levels):
+        raise ConfigError(f"{ctx}: repeated optimisation levels {list(levels)}")
+    return levels
+
+
+def _parse_oracles(value: Any, ctx: str) -> OraclesConfig:
+    """Parse the ``oraculos`` section."""
+    data = _as_mapping(value, ctx)
+    _warn_unknown_keys(data, ("por_tamano",), ctx)
+    return OraclesConfig(por_tamano=_as_int(*_get(data, "por_tamano", ctx), minimum=1))
+
+
 def _parse_dataset(data: Mapping[str, Any], ctx: str, config_dir: Path) -> DatasetConfig:
     """Build a ``DatasetConfig`` from the raw YAML mapping (structure and types only)."""
     _warn_unknown_keys(data, DATASET_KEYS, ctx)
@@ -335,15 +382,17 @@ def _parse_dataset(data: Mapping[str, Any], ctx: str, config_dir: Path) -> Datas
         ),
         mapped=MappedConfig(dispositivo=_as_str(*_get(mapped, "dispositivo", f"{ctx}[mapped]"))),
         opt_level=_as_int(*_get(data, "opt_level", ctx)),
-        variantes_compilacion=_as_int(*_get(data, "variantes_compilacion", ctx), minimum=1),
+        niveles_opt_compilacion=_parse_opt_levels(*_get(data, "niveles_opt_compilacion", ctx)),
         variantes_parametros=_as_int(*_get(data, "variantes_parametros", ctx), minimum=1),
         max_nodos=_as_int(*_get(data, "max_nodos", ctx), minimum=1),
         familias=_parse_families(*_get(data, "familias", ctx)),
         control_negativo=_as_str_tuple(*_get(data, "control_negativo", ctx)),
+        reservados_sin_familia=_as_str_tuple(*_get(data, "reservados_sin_familia", ctx)),
         excluidos=_as_str_tuple(*_get(data, "excluidos", ctx)),
         variacionales_con_parametros=_as_str_tuple(
             *_get(data, "variacionales_con_parametros", ctx)
         ),
+        oraculos=_parse_oracles(*_get(data, "oraculos", ctx)),
         rutas=_parse_paths(*_get(data, "rutas", ctx), config_dir=config_dir),
     )
 
@@ -357,9 +406,13 @@ def _dataset_consistency_errors(config: DatasetConfig) -> list[str]:
     in_several = sorted(n for n, c in Counter(config.all_algorithms).items() if c > 1)
     if in_several:
         errors.append(f"algorithms listed in more than one family: {in_several}")
-    if negative_as_class := sorted(classes & set(config.control_negativo)):
+    negative = set(config.control_negativo)
+    unfamiliar = set(config.reservados_sin_familia)
+    if negative_as_class := sorted(classes & negative):
         errors.append(f"control_negativo entries are also class algorithms: {negative_as_class}")
-    if excluded_used := sorted(set(config.excluidos) & (classes | set(config.control_negativo))):
+    if unfamiliar_used := sorted(unfamiliar & (classes | negative)):
+        errors.append(f"reservados_sin_familia entries are also used elsewhere: {unfamiliar_used}")
+    if excluded_used := sorted(set(config.excluidos) & (classes | negative | unfamiliar)):
         errors.append(f"excluidos entries are also used elsewhere: {excluded_used}")
     if not_classes := sorted(set(config.variacionales_con_parametros) - classes):
         errors.append(f"variacionales_con_parametros entries are not classes: {not_classes}")
@@ -436,6 +489,17 @@ def _parse_size_split(value: Any, ctx: str) -> SizeSplitConfig:
     return SizeSplitConfig(**ranges)
 
 
+def _parse_balancing(value: Any, ctx: str) -> BalancingConfig:
+    """Parse the ``balanceo`` section."""
+    data = _as_mapping(value, ctx)
+    _warn_unknown_keys(data, ("modo", "max_bases_por_clase"), ctx)
+    mode = _as_str(*_get(data, "modo", ctx))
+    if mode not in BALANCING_MODES:
+        raise ConfigError(f"{ctx}[modo]: must be one of {list(BALANCING_MODES)}, got {mode!r}")
+    cap = _as_optional_int(*_get(data, "max_bases_por_clase", ctx), minimum=1)
+    return BalancingConfig(modo=mode, max_bases_por_clase=cap)
+
+
 def _parse_splits(data: Mapping[str, Any], ctx: str) -> SplitsConfig:
     """Build a ``SplitsConfig`` from the raw YAML mapping."""
     _warn_unknown_keys(data, SPLITS_KEYS, ctx)
@@ -445,6 +509,7 @@ def _parse_splits(data: Mapping[str, Any], ctx: str) -> SplitsConfig:
         por_tamano=_parse_size_split(*_get(data, "por_tamano", ctx)),
         algoritmos_reservados=_as_str_tuple(*_get(data, "algoritmos_reservados", ctx)),
         minimo_por_clase_train=_as_int(*_get(data, "minimo_por_clase_train", ctx), minimum=0),
+        balanceo=_parse_balancing(*_get(data, "balanceo", ctx)),
     )
 
 
@@ -454,10 +519,13 @@ def _check_splits_against_dataset(splits: SplitsConfig, dataset: DatasetConfig) 
     available = set(get_available_benchmark_names())
     if unknown := [n for n in splits.algoritmos_reservados if n not in available]:
         errors.append(f"algoritmos_reservados not available in mqt.bench: {unknown}")
-    classes = set(dataset.all_algorithms)
+    generated = set(dataset.all_algorithms) | set(dataset.reservados_sin_familia)
     for name in splits.algoritmos_reservados:
-        if name in available and name not in classes:
-            logger.warning("reserved algorithm '%s' is not a class of the dataset", name)
+        if name in available and name not in generated:
+            logger.warning("reserved algorithm '%s' is not generated by the dataset", name)
+    for name in dataset.reservados_sin_familia:
+        if name not in splits.algoritmos_reservados:
+            logger.warning("'%s' has no family but is not in algoritmos_reservados", name)
     for name in SPLIT_SETS:
         size_range = getattr(splits.por_tamano, name)
         if size_range.min < dataset.tamanos.min or size_range.max > dataset.tamanos.max:

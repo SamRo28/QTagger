@@ -42,10 +42,13 @@ def test_dataset_config_loads(dataset_yaml: Path, repo_root: Path) -> None:
     assert config.nativegates.gateset == "ibm_heron"
     assert config.mapped.dispositivo == "ibm_heron_156"
     assert config.opt_level == 2
-    assert (config.variantes_compilacion, config.variantes_parametros) == (3, 5)
+    assert config.niveles_opt_compilacion == (1, 0, 2)
+    assert config.variantes_parametros == 5
     assert config.max_nodos == 20000
-    assert len(config.familias) == 7
-    assert len(config.all_algorithms) == 32
+    assert len(config.familias) == 6
+    assert len(config.all_algorithms) == 31
+    assert config.reservados_sin_familia == ("qwalk",)
+    assert config.oraculos.por_tamano == 20
     assert config.family_of("grover") == "oraculos"
     assert config.control_negativo == ("randomcircuit",)
     assert set(config.excluidos) == {
@@ -81,8 +84,10 @@ def test_splits_config_loads(splits_yaml: Path, dataset_yaml: Path) -> None:
     assert (splits.por_tamano.train.min, splits.por_tamano.train.max) == (3, 16)
     assert (splits.por_tamano.val.min, splits.por_tamano.val.max) == (17, 20)
     assert (splits.por_tamano.test.min, splits.por_tamano.test.max) == (21, 30)
-    assert splits.algoritmos_reservados == ("simon", "qwalk", "hhl")
-    assert splits.minimo_por_clase_train == 300
+    assert splits.algoritmos_reservados == ("qwalk", "hrs_cumulative_multiplier", "hhl")
+    assert splits.minimo_por_clase_train == 15
+    assert splits.balanceo.modo == "muestreo"
+    assert splits.balanceo.max_bases_por_clase is None
 
 
 # --------------------------------------------------------------------------------------------
@@ -142,6 +147,10 @@ def _boolean_seed(data: dict[str, Any]) -> None:
     data["semilla_global"] = True
 
 
+def _unfamiliar_also_class(data: dict[str, Any]) -> None:
+    data["reservados_sin_familia"].append("ghz")
+
+
 @pytest.mark.parametrize(
     ("mutate", "message"),
     [
@@ -155,6 +164,7 @@ def _boolean_seed(data: dict[str, Any]) -> None:
         (_invert_sizes, "invalid size range"),
         (_bad_opt_level, "opt_level"),
         (_boolean_seed, "semilla_global"),
+        (_unfamiliar_also_class, "reservados_sin_familia"),
     ],
 )
 def test_invalid_dataset_config_fails(
@@ -183,12 +193,22 @@ def _unknown_reserved_algorithm(data: dict[str, Any]) -> None:
     data["algoritmos_reservados"].append("not_a_benchmark")
 
 
+def _unknown_balancing_mode(data: dict[str, Any]) -> None:
+    data["balanceo"]["modo"] = "smote"
+
+
+def _zero_cap(data: dict[str, Any]) -> None:
+    data["balanceo"]["max_bases_por_clase"] = 0
+
+
 @pytest.mark.parametrize(
     ("mutate", "message"),
     [
         (_fractions_not_summing_to_one, "add up to 1"),
         (_overlapping_size_ranges, "overlap"),
         (_unknown_reserved_algorithm, "not_a_benchmark"),
+        (_unknown_balancing_mode, "modo"),
+        (_zero_cap, "max_bases_por_clase"),
     ],
 )
 def test_invalid_splits_config_fails(
