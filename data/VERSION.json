@@ -11,8 +11,8 @@
     "data/splits/por_tamano.csv": "c652e585c5baad1a5db3d284241b5414a340fe0d23d3f8ff91a77868e1c118a2",
     "data/graphs/etiquetas.json": "d9eb63b27506cbebd308db1ac2630f0e9a4f46073cdc737d025d596c9305f060"
   },
-  "creado": "2026-11-24T16:39:45+00:00",
-  "git_commit": "f88e5380e38a9bb651dc29fef47beff07ef618c0",
+  "creado": "2026-11-24T16:49:18+00:00",
+  "git_commit": "92292540144534d1893393da7b284ba07257472b",
   "librerias": {
     "python": "3.13.18",
     "qiskit": "2.6.2",
