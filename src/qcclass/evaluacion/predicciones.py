@@ -1,9 +1,10 @@
 """Prediction tables, exclusion rules and out-of-fold aggregation.
 
 A prediction table is a DataFrame with one row per evaluated circuit and the columns
-``id``, ``group_id``, ``solo_evaluacion``, ``y_algoritmo``, ``y_familia``, ``pred_algoritmo``
-and ``pred_familia``; optionally ``bloque`` (cross-validation block) and the probabilities
-``p_algoritmo_<i>`` / ``p_familia_<j>`` (one column per class, in label-index order).
+``id``, ``group_id`` and ``solo_evaluacion``, plus, for every predicted head (``algoritmo``,
+``familia`` or both), ``y_<head>`` and ``pred_<head>``; optionally ``bloque``
+(cross-validation block) and the probabilities ``p_<head>_<i>`` (one column per class, in
+label-index order).
 
 Exclusion rules (:func:`head_rows`):
 
@@ -18,25 +19,26 @@ import numpy as np
 import pandas as pd
 
 HEADS = ("algoritmo", "familia")
-REQUIRED_COLUMNS = (
-    "id",
-    "group_id",
-    "solo_evaluacion",
-    "y_algoritmo",
-    "y_familia",
-    "pred_algoritmo",
-    "pred_familia",
-)
+REQUIRED_COLUMNS = ("id", "group_id", "solo_evaluacion")
 BLOCK_COLUMN = "bloque"
+
+
+def table_heads(table: pd.DataFrame) -> tuple[str, ...]:
+    """Heads predicted in a table (those with a ``pred_<head>`` column)."""
+    return tuple(head for head in HEADS if f"pred_{head}" in table.columns)
 
 
 def check_table(table: pd.DataFrame) -> None:
     """Check the required columns and that every id appears once.
 
     Raises:
-        ValueError: if a column is missing or an id is repeated.
+        ValueError: if a column is missing, no head is predicted or an id is repeated.
     """
-    if missing := [c for c in REQUIRED_COLUMNS if c not in table.columns]:
+    heads = table_heads(table)
+    if not heads:
+        raise ValueError("prediction table without any pred_<head> column")
+    required = [*REQUIRED_COLUMNS, *(f"y_{head}" for head in heads)]
+    if missing := [c for c in required if c not in table.columns]:
         raise ValueError(f"prediction table without columns {missing}")
     if not table["id"].is_unique:
         repeated = table.loc[table["id"].duplicated(), "id"].tolist()[:5]
@@ -74,14 +76,14 @@ def head_arrays(
 def make_table(
     ids: Sequence[str],
     groups: Sequence[str],
-    y_algorithm: Sequence[int],
-    y_family: Sequence[int],
+    targets: dict[str, Sequence[int]],
     probabilities: dict[str, np.ndarray],
     *,
     evaluation_only: Sequence[bool] | None = None,
     block: int | None = None,
 ) -> pd.DataFrame:
-    """Prediction table from probabilities (``{head: (n, classes)}``), predicting the argmax.
+    """Prediction table from targets and probabilities per head (``{head: (n, classes)}``),
+    predicting the argmax.
 
     Rows whose target is -1 or -2 keep the argmax too; the exclusion rules decide later
     whether they count.
@@ -93,11 +95,12 @@ def make_table(
             "solo_evaluacion": (
                 list(evaluation_only) if evaluation_only is not None else [False] * len(ids)
             ),
-            "y_algoritmo": np.asarray(y_algorithm, dtype=int),
-            "y_familia": np.asarray(y_family, dtype=int),
         }
     )
     for head in HEADS:
+        if head not in probabilities:
+            continue
+        table[f"y_{head}"] = np.asarray(targets[head], dtype=int)
         matrix = np.asarray(probabilities[head], dtype=float)
         table[f"pred_{head}"] = matrix.argmax(axis=1)
         table[probability_columns(head, matrix.shape[1])] = matrix

@@ -75,3 +75,31 @@ def connect(uri: str | None = None, timeout: float = CHECK_TIMEOUT) -> optuna.st
 def study_summary(storage: optuna.storages.BaseStorage) -> dict[str, int]:
     """Number of trials of every study in the storage."""
     return {s.study_name: s.n_trials for s in optuna.get_all_study_summaries(storage)}
+
+
+MACHINE_ATTR = "equipo"  # user attribute set by every trial when it starts
+
+
+def fail_stale_trials(
+    study: optuna.Study, storage: optuna.storages.BaseStorage, machine: str
+) -> list[int]:
+    """Mark as failed the ``RUNNING`` trials of ``machine`` left by an interrupted process.
+
+    The gRPC proxy has no heartbeat, so an interrupted trial would stay ``RUNNING`` forever.
+    Run this before optimising: it assumes one process per study and machine at a time.
+    Returns the numbers of the trials marked as failed.
+    """
+    study_id = storage.get_study_id_from_name(study.study_name)
+    stale = [
+        trial.number
+        for trial in study.get_trials(deepcopy=False, states=(optuna.trial.TrialState.RUNNING,))
+        if trial.user_attrs.get(MACHINE_ATTR) == machine
+    ]
+    for number in stale:
+        trial_id = storage.get_trial_id_from_study_id_trial_number(study_id, number)
+        storage.set_trial_state_values(trial_id, optuna.trial.TrialState.FAIL)
+    if stale:
+        logger.warning(
+            "study %s: stale trials of %s marked as failed: %s", study.study_name, machine, stale
+        )
+    return stale

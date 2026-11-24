@@ -29,10 +29,10 @@ from qcclass.evaluacion.metricas import (
 )
 from qcclass.evaluacion.predicciones import (
     BLOCK_COLUMN,
-    HEADS,
     check_table,
     head_arrays,
     head_rows,
+    table_heads,
 )
 from qcclass.semillas import derive_seed
 
@@ -122,8 +122,9 @@ def evaluate(
     *,
     name: str,
 ) -> dict:
-    """Evaluation of both heads of a prediction table (``class_names`` per head)."""
+    """Evaluation of every head predicted in the table (``class_names`` per head)."""
     check_table(table)
+    heads = table_heads(table)
     return {
         "nombre": name,
         "metrica_principal": f"algoritmo.{PRIMARY_METRIC}",
@@ -133,7 +134,8 @@ def evaluate(
             "unidad": "group_id",
         },
         "solo_evaluacion_excluidas": int(table["solo_evaluacion"].astype(bool).sum()),
-        **{head: evaluate_head(table, head, class_names[head], config, name) for head in HEADS},
+        "cabezas": list(heads),
+        **{head: evaluate_head(table, head, class_names[head], config, name) for head in heads},
     }
 
 
@@ -164,7 +166,7 @@ def report_markdown(report: dict) -> str:
         f"grupos ({report['bootstrap']['remuestreos']} remuestreos). Variantes "
         f"`solo_evaluacion` excluidas: {report['solo_evaluacion_excluidas']}.",
     ]
-    for head in HEADS:
+    for head in report["cabezas"]:
         result = report[head]
         lines += ["", f"## {head.capitalize()} (n = {result['n']}, {result['grupos']} grupos)", ""]
         metric_rows = [

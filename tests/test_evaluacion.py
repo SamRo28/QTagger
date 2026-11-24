@@ -113,8 +113,7 @@ def _table(block: int | None = None, offset: int = 0, n: int = 6) -> pd.DataFram
     return make_table(
         ids,
         [f"g{offset + i // 2}" for i in range(n)],
-        y_algorithm,
-        y_family,
+        {"algoritmo": y_algorithm, "familia": y_family},
         probabilities,
         evaluation_only=[False, False, False, False, True, False][:n],
         block=block,
@@ -193,8 +192,7 @@ def test_evaluation_report(tmp_path: Path) -> None:
     table = make_table(
         [f"c{i}" for i in range(n)],
         [f"g{i // 2}" for i in range(n)],
-        y_algorithm,
-        y_family,
+        {"algoritmo": y_algorithm, "familia": y_family},
         {"algoritmo": noisy, "familia": np.eye(2)[y_family]},
     )
     table["bloque"] = (np.arange(n) // 2) % 3
@@ -247,3 +245,16 @@ def test_evaluation_config_file(repo_root: Path) -> None:
     config = load_evaluation_config(repo_root / "configs" / "evaluacion.yaml")
     assert config.bootstrap.remuestreos == 10_000 and config.bootstrap.nivel == 0.95
     assert config.top_k == 3
+
+
+def test_single_head_table() -> None:
+    table = make_table(
+        ["a", "b", "c"],
+        ["g1", "g2", "g3"],
+        {"familia": [0, 1, 1]},
+        {"familia": np.array([[0.9, 0.1], [0.2, 0.8], [0.6, 0.4]])},
+    )
+    assert "pred_algoritmo" not in table.columns
+    report = evaluate(table, {"familia": ("a", "b")}, FAST, name="solo_familia")
+    assert report["cabezas"] == ["familia"] and "algoritmo" not in report
+    assert report["familia"]["metricas"]["exactitud"]["valor"] == pytest.approx(2 / 3)

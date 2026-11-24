@@ -38,6 +38,8 @@ EvaluarTestOption = Annotated[
     ),
 ]
 DEFAULT_SERVER_TEST_CONFIG = Path("configs/experimentos/prueba_servidores.yaml")
+DEFAULT_BASELINE_CONFIG = Path("configs/experimentos/linea_base.yaml")
+DEFAULT_EVALUATION_CONFIG = Path("configs/evaluacion.yaml")
 
 
 def _split_list(value: str | None) -> list[str] | None:
@@ -636,3 +638,66 @@ def _print_measurement(result: dict) -> None:
         )
     if sweep := result["barrido"]:
         typer.echo(f"Largest working budget: {sweep['mayor_presupuesto_ok']}")
+
+
+@app.command("linea-base")
+def linea_base(
+    config: ConfigOption = DEFAULT_DATASET_CONFIG,
+    splits: SplitsOption = DEFAULT_SPLITS_CONFIG,
+    experimento: Annotated[
+        Path, typer.Option(help="Baseline experiment configuration.")
+    ] = DEFAULT_BASELINE_CONFIG,
+    evaluacion: Annotated[
+        Path, typer.Option(help="Evaluation configuration.")
+    ] = DEFAULT_EVALUATION_CONFIG,
+    peldanos: Annotated[str | None, typer.Option(help="Only these rungs (comma list).")] = None,
+    clasificadores: Annotated[
+        str | None, typer.Option(help="Only these classifiers (comma list).")
+    ] = None,
+    objetivos: Annotated[str | None, typer.Option(help="Only these targets (comma list).")] = None,
+    rehacer: Annotated[
+        bool, typer.Option("--rehacer", help="Redo the out-of-fold evaluation of finished studies.")
+    ] = False,
+    sin_resumen: Annotated[
+        bool, typer.Option("--sin-resumen", help="Do not write RESUMEN.md.")
+    ] = False,
+) -> None:
+    """Phase 10 baseline: Optuna studies with 5-block cross-validation (never the test set)."""
+    from qcclass.config import ConfigError, load_evaluation_config
+    from qcclass.lineabase.configuracion import load_baseline_config
+    from qcclass.lineabase.ejecutar import run_baseline
+    from qcclass.seguimiento.entorno import ServerConnectionError, load_env
+    from qcclass.seguimiento.optuna_cliente import connect
+    from qcclass.versionado import VersionError
+
+    dataset = _load_dataset_config(config)
+    split_config = _load_splits_config(splits, dataset)
+    try:
+        baseline = load_baseline_config(experimento)
+        evaluation = load_evaluation_config(evaluacion)
+        load_env(dataset.rutas.raiz)
+        storage = connect()
+        run = run_baseline(
+            dataset,
+            split_config,
+            baseline,
+            evaluation,
+            storage=storage,
+            rungs=_split_list(peldanos),
+            classifiers=_split_list(clasificadores),
+            targets=_split_list(objetivos),
+            redo=rehacer,
+            summary=not sin_resumen,
+        )
+    except (ConfigError, ServerConnectionError, VersionError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    for result in run.results:
+        typer.echo(
+            f"{result['estudio']}: CV macro F1 {100 * result['cv_f1_macro']:.1f} %, "
+            f"OOF {100 * result['oof']['f1_macro']['valor']:.1f} %"
+        )
+    for row in run.finalists.itertuples(index=False):
+        typer.echo(f"Finalist {row.peldano}: {row.clasificador} ({100 * row.cv_f1_macro:.1f} %)")
+    if run.summary:
+        typer.echo(f"Summary: {run.summary}")

@@ -108,6 +108,16 @@ class LabelVocabulary:
             return UNKNOWN, self.family_index(row["familia"])
         return self.class_index(row["clase"]), self.family_index(row["familia"])
 
+    @classmethod
+    def from_json(cls, data: dict) -> "LabelVocabulary":
+        """Vocabulary from the content of ``etiquetas.json`` (inverse of :meth:`as_json`)."""
+        return cls(
+            classes=tuple(data["clases"]),
+            families=tuple(data["familias"]),
+            reserved=tuple(data["reservados"]),
+            unknown_without_family=tuple(data["desconocidos_sin_familia"]),
+        )
+
     def as_json(self) -> dict:
         """Content of ``etiquetas.json``."""
         return {

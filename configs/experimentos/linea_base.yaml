@@ -1,0 +1,62 @@
+# Phase 10: baseline (qcclass linea-base). One Optuna study per rung x classifier x target
+# (3 x 3 x 2 = 18), 50 trials each, TPE with a seed, objective = mean macro F1 over the 5
+# cross-validation blocks of train + val of `aleatorio` (data/splits/aleatorio_bloques.csv).
+# Class weights and the train cap are recomputed inside every block (splits.yaml: balanceo).
+
+nombre: linea_base_v1               # prefix of the Optuna studies
+experimento_mlflow: linea_base_v1
+intentos: 50
+semilla: 42
+poda:                                # MedianPruner on the running mean of the block F1
+  intentos_iniciales: 10             # complete trials before pruning starts
+objetivos: [algoritmo, familia]
+
+# Feature rungs.
+peldanos:
+  e7:                                # size only
+    fuente: f3
+    columnas: [n_qubits, profundidad, n_puertas]
+  f3:                                # every F3 feature
+    fuente: f3
+    columnas: null
+  wl:                                # Weisfeiler-Lehman on the F4 graphs
+    fuente: wl
+    h_max: 3
+    bits_hash: 20                    # 2^20 buckets: 2^14 saturates (>400k labels at h=3)
+    divisiones_pi: 16                # rz angles on a pi/16 grid, plus "other"
+    tolerancia_angulo: 1.0e-4        # radians
+    espacio:
+      h: {tipo: int, min: 1, max: 3}                  # WL iterations used (0..h)
+      min_circuitos: {tipo: categorica, valores: [2, 5, 10]}   # min. training circuits per column
+
+# Search spaces. tipo: float (min, max, log), int (min, max, paso), categorica (valores),
+# fijo (valor). Hyperparameters not listed keep scikit-learn's defaults.
+clasificadores:
+  regresion_logistica:               # multinomial, L2, standardised inputs
+    C: {tipo: float, min: 1.0e-3, max: 1.0e+3, log: true}
+    transformacion: {tipo: categorica, valores: [ninguna, log1p]}   # before standardising
+    max_iter: {tipo: fijo, valor: 2000}
+  random_forest:
+    n_estimators: {tipo: int, min: 100, max: 500, paso: 100}
+    max_depth: {tipo: categorica, valores: [null, 8, 16, 32]}
+    min_samples_leaf: {tipo: int, min: 1, max: 10}
+    max_features: {tipo: categorica, valores: [sqrt, log2, 0.5, 1.0]}
+  hist_gradient_boosting:            # no early stopping: its inner split ignores groups
+    learning_rate: {tipo: float, min: 0.02, max: 0.3, log: true}
+    max_iter: {tipo: int, min: 50, max: 300, paso: 50}
+    max_leaf_nodes: {tipo: int, min: 15, max: 63}
+    min_samples_leaf: {tipo: int, min: 5, max: 50}
+    l2_regularization: {tipo: float, min: 1.0e-6, max: 1.0, log: true}
+
+# Per-rung changes of a classifier space (replace or add hyperparameters).
+ajustes_por_peldano:
+  wl:
+    random_forest:                   # 0.5 or 1.0 of ~10^5 sparse columns is too slow
+      max_features: {tipo: categorica, valores: [sqrt, log2]}
+    hist_gradient_boosting:          # needs dense input: the K most frequent columns of the
+      columnas_wl: {tipo: categorica, valores: [256, 512, 1024]}   # block's training part
+
+# Permutation importance of the finalists (best classifier of each rung by algorithm F1).
+importancia:
+  repeticiones: 5
+  max_columnas_wl: 100               # WL: only the most frequent columns are permuted

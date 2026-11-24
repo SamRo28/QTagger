@@ -7,6 +7,9 @@
 # Experiment outputs and reports (performance measurements are versioned)
 /results/*
 !/results/medicion/
+!/results/baseline/
+/results/baseline/estudios/
+/results/baseline/cache/
 
 # Reduced dataset (configs/dataset_mini.yaml)
 /data_mini/

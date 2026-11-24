@@ -80,3 +80,87 @@ def test_measurement_on_the_mini_dataset(repo_root: Path, tmp_path: Path) -> Non
     assert stored["version_dataset"] == "m" and stored["epocas"][0]["lotes"] > 0
     assert stored["proyeccion"]["fuente"] == "epoca_1"
     assert not (config.rutas.resultados / "accesos_test.log").exists()
+
+
+MINI_BASELINE = """
+nombre: lb_mini
+experimento_mlflow: lb_mini
+intentos: 2
+semilla: 1
+poda: {intentos_iniciales: 10}
+objetivos: [algoritmo, familia]
+peldanos:
+  e7: {fuente: f3, columnas: [n_qubits, profundidad, n_puertas]}
+  f3: {fuente: f3, columnas: null}
+  wl:
+    fuente: wl
+    h_max: 2
+    bits_hash: 16
+    divisiones_pi: 16
+    tolerancia_angulo: 1.0e-4
+    espacio:
+      h: {tipo: int, min: 1, max: 2}
+      min_circuitos: {tipo: categorica, valores: [1, 2]}
+clasificadores:
+  regresion_logistica:
+    C: {tipo: float, min: 0.1, max: 10, log: true}
+    max_iter: {tipo: fijo, valor: 200}
+  random_forest:
+    n_estimators: {tipo: int, min: 10, max: 20, paso: 10}
+  hist_gradient_boosting:
+    max_iter: {tipo: int, min: 10, max: 20, paso: 10}
+ajustes_por_peldano:
+  wl:
+    hist_gradient_boosting:
+      columnas_wl: {tipo: categorica, valores: [16]}
+importancia: {repeticiones: 2, max_columnas_wl: 5}
+"""
+
+
+@pytest.mark.slow
+def test_baseline_on_the_mini_dataset(
+    repo_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``qcclass linea-base`` on the reduced dataset, with real MLflow and Optuna servers."""
+    import socket
+
+    from qcclass.lineabase.resumen import SUMMARY_FILE
+
+    def free_port() -> int:
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            return sock.getsockname()[1]
+
+    for name in ("QCCLASS_MLFLOW_URI", "QCCLASS_OPTUNA_STORAGE", "QCCLASS_EQUIPO"):
+        monkeypatch.delenv(name, raising=False)
+    dataset_yaml, splits_yaml = _mini_configs(repo_root, tmp_path)
+    config_args = ["--config", str(dataset_yaml)]
+    runner = CliRunner()
+    assert runner.invoke(app, ["todo", *config_args, "--splits", str(splits_yaml)]).exit_code == 0
+    assert runner.invoke(app, ["versionar", *config_args, "--nombre", "m"]).exit_code == 0
+    mlflow_port, optuna_port = free_port(), free_port()
+    (tmp_path / ".env").write_text(
+        f"QCCLASS_EQUIPO=ci\nQCCLASS_SERVIDORES_DIR={tmp_path / 'servidores'}\n"
+        f"QCCLASS_SERVIDORES_HOST=127.0.0.1\nQCCLASS_MLFLOW_PUERTO={mlflow_port}\n"
+        f"QCCLASS_OPTUNA_PUERTO={optuna_port}\n"
+        f"QCCLASS_MLFLOW_URI=http://127.0.0.1:{mlflow_port}\n"
+        f"QCCLASS_OPTUNA_STORAGE=grpc://127.0.0.1:{optuna_port}\n"
+    )
+    experiment = tmp_path / "lb_mini.yaml"
+    experiment.write_text(MINI_BASELINE)
+    try:
+        started = runner.invoke(app, ["servidores", "arrancar", *config_args])
+        assert started.exit_code == 0, started.output
+        args = ["linea-base", *config_args, "--splits", str(splits_yaml)]
+        result = runner.invoke(app, [*args, "--experimento", str(experiment)])
+        assert result.exit_code == 0, result.output
+        assert result.output.count("CV macro F1") == 18
+        config = load_dataset_config(dataset_yaml)
+        summary = (config.rutas.resultados / "baseline" / SUMMARY_FILE).read_text()
+        assert "## Objetivo: algoritmo" in summary and "| e7 |" in summary
+        assert "**e7**" in summary and "Importancia por permutación: wl" in summary
+        assert not (config.rutas.resultados / "accesos_test.log").exists()
+        again = runner.invoke(app, [*args, "--experimento", str(experiment), "--peldanos", "e7"])
+        assert again.exit_code == 0 and again.output.count("CV macro F1") == 6  # resumed
+    finally:
+        runner.invoke(app, ["servidores", "parar", *config_args])

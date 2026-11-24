@@ -155,3 +155,10 @@ Condiciones del portátil Windows durante un trabajo largo:
   `vmIdleTimeout=-1`, ejecutar `wsl --shutdown` en PowerShell y repetir.
 
 Los comandos concretos de cada fase se añaden aquí cuando existan.
+
+## Trabajos por fase
+
+- **Fase 10 (línea base, `m3pro`).** `qcclass linea-base` (18 estudios de Optuna, se reanuda
+  relanzando el mismo comando). En el `m3pro`, con el cargador conectado:
+  `caffeinate -i nohup .venv/bin/qcclass linea-base > logs/linea_base.log 2>&1 &` y progreso con
+  `tail -f logs/linea_base.log` o en MLflow (experimento `linea_base_v1`).

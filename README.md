@@ -111,6 +111,14 @@ machine sets `QCCLASS_MLFLOW_URI` and `QCCLASS_OPTUNA_STORAGE` in an unversioned
 (`src/qcclass/evaluacion/`) computes the metrics, breakdowns and group-bootstrap intervals
 used by every model.
 
+## Baseline (phase 10)
+
+`qcclass linea-base` runs one Optuna study per feature rung (size only, F3, Weisfeiler-Lehman
+on F4) x classifier (logistic regression, random forest, histogram gradient boosting) x
+target (algorithm, family), with 5-block cross-validation over train + val of `aleatorio`
+(configuration: `configs/experimentos/linea_base.yaml`). The summary is written to
+`results/baseline/RESUMEN.md`; the test set is never read.
+
 ## Development
 
 ```bash
