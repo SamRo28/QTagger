@@ -203,6 +203,7 @@ def test_measurement_on_cpu_writes_the_json(tiny: DatasetConfig) -> None:
     assert stored["peor_caso"]["ok"]
     assert stored["proyeccion"]["fuente"] == "epoca_2"
     assert stored["mps_fallback"] is None and stored["barrido"] is None
+    assert stored["memoria_inicial"] is None  # CPU: no device memory
     assert not access_log_path(tiny).exists()  # the test set was never read
 
 
@@ -227,6 +228,7 @@ def test_cli_medir_sweep_and_summary(tiny: DatasetConfig, tmp_path: Path) -> Non
     assert stored["epocas"][0]["lotes"] == 2
     sweep = stored["barrido"]
     assert [b["presupuesto_nodos"] for b in sweep["presupuestos"]] == [
+        25_000,
         50_000,
         100_000,
         200_000,

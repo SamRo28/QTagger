@@ -425,7 +425,7 @@ def medir(
     dim: Annotated[int, typer.Option(help="Hidden width of the reference model.", min=1)] = 64,
     capas: Annotated[int, typer.Option(help="GINEConv layers.", min=1)] = 3,
     barrido: Annotated[
-        bool, typer.Option("--barrido", help="Also sweep 50k-400k node budgets (50 batches).")
+        bool, typer.Option("--barrido", help="Also sweep 25k-400k node budgets (50 batches).")
     ] = False,
     resumen: Annotated[
         bool, typer.Option("--resumen", help="Only gather the JSON files into RESUMEN.md.")
@@ -497,6 +497,12 @@ def medir(
 
 def _print_measurement(result: dict) -> None:
     """Short console summary of a measurement."""
+    if (initial := result["memoria_inicial"]) and "util_mb" in initial:
+        typer.echo(
+            f"CUDA memory before the first batch: {initial['memoria_reservada_mb']:,.0f} MB "
+            f"reserved, {initial['contexto_y_otros_mb']:,.0f} MB context and others, "
+            f"{initial['util_mb']:,.0f} of {initial['memoria_total_mb']:,.0f} MB usable"
+        )
     worst = result["peor_caso"]
     state = "ok" if worst["ok"] else "OUT OF MEMORY"
     typer.echo(f"Worst case ({worst['n_nodos']:,} nodes): {state}")

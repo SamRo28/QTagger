@@ -99,7 +99,8 @@ qcclass medir --dispositivo mps --equipo m3pro       # --amp, --barrido, --max-l
 qcclass medir --resumen                              # results/medicion/RESUMEN.md
 ```
 
-`notebooks/medicion_colab.ipynb` runs the same measurement on Google Colab.
+`notebooks/medicion_colab.ipynb` runs the measurement on a Google Colab T4 (required, plain and
+with `--amp`); it falls back to torch 2.14.1 + CUDA 12.6 if Colab's driver is older than 580.
 
 ## Development
 

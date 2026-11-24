@@ -56,7 +56,7 @@ logger = logging.getLogger(__name__)
 PROTOCOL = "aleatorio"
 MEASUREMENT_DIR = "medicion"
 SUMMARY_FILE = "RESUMEN.md"
-SWEEP_BUDGETS = (50_000, 100_000, 200_000, 400_000)
+SWEEP_BUDGETS = (25_000, 50_000, 100_000, 200_000, 400_000)  # 25k: 4 GB laptop GPUs
 SWEEP_BATCHES = 50
 PROJECTION_EPOCHS = (50, 100, 200)
 OPTUNA_TRIALS = (20, 50)
@@ -152,6 +152,33 @@ class GpuMemory:
         if self.device == "mps":
             return {"memoria_gpu_max_mb": round(self._mps_peak / 2**20, 1)}
         return {"memoria_gpu_max_mb": None}
+
+
+def startup_memory(device: str) -> dict | None:
+    """Device memory once the model and optimiser are on it, before the first batch.
+
+    On CUDA: what the caching allocator has reserved (``memory_reserved``) and allocated,
+    and the free and total memory seen by the driver (``mem_get_info``), whose difference
+    also includes the CUDA context. ``util_mb`` is what is left for batches.
+    """
+    if device == "cuda":
+        free, total = torch.cuda.mem_get_info()
+        reserved = torch.cuda.memory_reserved()
+        return {
+            "memoria_reservada_mb": round(reserved / 2**20, 1),
+            "memoria_asignada_mb": round(torch.cuda.memory_allocated() / 2**20, 1),
+            "memoria_total_mb": round(total / 2**20, 1),
+            "memoria_libre_driver_mb": round(free / 2**20, 1),
+            "contexto_y_otros_mb": round((total - free - reserved) / 2**20, 1),
+            "util_mb": round((free + reserved - torch.cuda.memory_allocated()) / 2**20, 1),
+        }
+    if device == "mps":
+        return {
+            "memoria_asignada_mb": round(torch.mps.current_allocated_memory() / 2**20, 1),
+            "memoria_driver_mb": round(torch.mps.driver_allocated_memory() / 2**20, 1),
+            "memoria_recomendada_mb": round(torch.mps.recommended_max_memory() / 2**20, 1),
+        }
+    return None
 
 
 # --------------------------------------------------------------------------------------------
@@ -476,6 +503,8 @@ def run_measurement(
         ResourceMonitor(gpu_temperature=device == "cuda") as monitor,
     ):
         warnings.simplefilter("always")
+        synchronize(device)
+        initial_memory = startup_memory(device)  # before the worst case and the first batch
         memory = GpuMemory(device)
         worst = worst_case(trainer, training, memory)
         loader = make_loader(
@@ -511,6 +540,7 @@ def run_measurement(
             if device == "mps"
             else None
         ),
+        "memoria_inicial": initial_memory,
         "peor_caso": worst,
         "epocas": epochs,
         "perdida_baja": (
