@@ -16,6 +16,9 @@ Documento vivo: se actualiza en cada fase. Las decisiones están en
 - Datos: **no se regeneran**. Se copian desde el `m3pro` y se comprueban con
   `qcclass verificar` (huellas de `data/VERSION.json`, versión actual `dataset-v1.1`).
 - MPS no se usa: en la medición resultó más lento que la CPU del M3 Pro.
+- Estado (2026-11-24, fase 9): servidores en marcha en el `m1pro`; `ping`, `verificar` y la
+  prueba de Optuna/MLflow correctos desde los tres equipos. Python 3.13.18 y las mismas
+  versiones de librerías en `m3pro` y `rtx3050`.
 
 ## Red
 
@@ -127,7 +130,7 @@ corriendo aunque se cierre la terminal. Instalación única: `sudo apt install -
 
 ```bash
 cd /home/samue/QTagger && source .venv/bin/activate
-mkdir -p logs
+mkdir -p logs                    # ignorada por git
 # lanzar (sesión <nombre>, salida también en logs/<nombre>.log)
 tmux new-session -d -s <nombre> "source .venv/bin/activate && <comando> 2>&1 | tee -a logs/<nombre>.log"
 tmux ls                          # sesiones en marcha

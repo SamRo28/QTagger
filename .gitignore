@@ -35,3 +35,6 @@ dist/
 
 # Per-machine settings (servers, machine name): see docs/EQUIPOS.md
 .env
+
+# Logs of long jobs launched with tmux (docs/EQUIPOS.md)
+/logs/

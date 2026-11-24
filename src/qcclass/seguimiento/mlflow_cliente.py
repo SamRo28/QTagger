@@ -75,7 +75,8 @@ def configure_mlflow() -> str:
 
 
 def git_state(root: Path) -> dict[str, str]:
-    """Current commit and whether the working tree has uncommitted changes."""
+    """Current commit and whether versioned files have uncommitted changes (untracked files
+    such as results or logs do not change the code and are ignored)."""
 
     def git(*args: str) -> str:
         try:
@@ -87,7 +88,7 @@ def git_state(root: Path) -> dict[str, str]:
 
     return {
         "git_commit": git("rev-parse", "HEAD"),
-        "git_sucio": str(bool(git("status", "--porcelain"))),
+        "git_sucio": str(bool(git("status", "--porcelain", "--untracked-files=no"))),
     }
 
 

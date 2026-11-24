@@ -10,10 +10,14 @@ File databases (``sqlite:``) and in-memory storage are refused: studies must be 
 """
 
 import logging
+import os
 import warnings
 from urllib.parse import urlparse
 
-import optuna
+# gRPC's C core logs harmless INFO lines when the process forks (git, workers); read at import
+os.environ.setdefault("GRPC_VERBOSITY", "ERROR")
+
+import optuna  # noqa: E402
 
 from qcclass.seguimiento.entorno import OPTUNA_STORAGE_VAR, ServerConnectionError, required
 
