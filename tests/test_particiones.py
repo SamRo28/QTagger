@@ -24,6 +24,7 @@ from qcclass.data.particiones import (
     PROTOCOLS,
     TRAIN,
     balance_path,
+    blocks_path,
     build_protocol,
     candidate_rows,
     create_splits,
@@ -248,3 +249,37 @@ def test_size_protocol_uses_the_logical_size_of_the_group(
     split = build_protocol(rows, config, splits, "por_tamano")
     joined = split.table.merge(rows[["id", "group_id"]], on="id")
     assert (joined.groupby("group_id")["conjunto"].nunique() == 1).all()
+
+
+def test_cross_validation_blocks(
+    dataset: tuple[DatasetConfig, SplitsConfig],
+    created: dict[str, pd.DataFrame],
+    rows: pd.DataFrame,
+) -> None:
+    config, splits = dataset
+    blocks = pd.read_csv(blocks_path(config), dtype={"group_id": str})
+    assert list(blocks.columns) == ["group_id", "bloque"] and blocks["group_id"].is_unique
+    assert set(blocks["bloque"]) == set(range(splits.bloques_cv))
+    joined = _joined(created["aleatorio"], rows)
+    pool = joined[joined["conjunto"].isin(["train", "val"])]
+    assert set(blocks["group_id"]) == set(pool.loc[~pool["solo_evaluacion"], "group_id"])
+    # evaluation-only variants inherit the block of their group; test groups have none
+    assert set(pool.loc[pool["solo_evaluacion"], "group_id"]) <= set(blocks["group_id"])
+    assert not set(joined.loc[joined["conjunto"] == "test", "group_id"]) & set(blocks["group_id"])
+    # stratified: a label with at least bloques_cv groups appears in every block
+    labelled = blocks.merge(pool.drop_duplicates("group_id")[["group_id", "etiqueta"]])
+    per_label = labelled.groupby("etiqueta")["bloque"].nunique()
+    sizes = labelled.groupby("etiqueta")["group_id"].nunique()
+    assert (per_label[sizes >= splits.bloques_cv] == splits.bloques_cv).all()
+
+
+def test_blocks_are_created_once(
+    dataset: tuple[DatasetConfig, SplitsConfig], created: dict[str, pd.DataFrame]
+) -> None:
+    config, splits = dataset
+    before = blocks_path(config).read_text(encoding="utf-8")
+    report = create_splits(config, splits)
+    assert not report.blocks_created
+    assert blocks_path(config).read_text(encoding="utf-8") == before
+    report = create_splits(config, splits, protocols=["aleatorio"], force=True)
+    assert report.blocks_created and blocks_path(config).read_text(encoding="utf-8") == before

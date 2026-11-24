@@ -6,6 +6,7 @@ aleatorio: {train: 0.70, val: 0.15, test: 0.15}        # fractions of group_id, 
 por_nivel: {train: [alg, indep], test: [nativegates, mapped]}   # levels, deduplicated together
 algoritmos_reservados: [qwalk, hrs_cumulative_multiplier, hhl]   # never seen in training
 minimo_por_clase_train: 15   # unique base circuits (group_id) per class in train
+bloques_cv: 5                # StratifiedGroupKFold blocks over train + val of `aleatorio`
 
 # Class balancing, applied to every label when the splits are built (no circuit is deleted;
 # val and test are always kept whole).

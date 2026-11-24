@@ -3,6 +3,7 @@
 import importlib.metadata
 import json
 import logging
+import platform
 from collections.abc import Callable
 from pathlib import Path
 
@@ -10,15 +11,18 @@ import pandas as pd
 import pytest
 from typer.testing import CliRunner
 
+from qcclass import versionado
 from qcclass.cli import app
 from qcclass.config import DatasetConfig
 from qcclass.versionado import (
+    FinalEvaluationPermit,
     LockedTestSetError,
     VersionError,
     access_log_path,
     begin_experiment,
     current_hashes,
     file_sha256,
+    final_evaluation_permit,
     global_fingerprint,
     library_differences,
     read_version,
@@ -94,31 +98,57 @@ def test_train_and_val_need_no_flag_and_leave_no_trace(versioned: DatasetConfig)
     assert not access_log_path(versioned).exists()
 
 
-def test_test_set_is_locked_without_the_flag(versioned: DatasetConfig) -> None:
-    with pytest.raises(LockedTestSetError, match="--evaluar-test"):
-        split_ids(versioned, "aleatorio", ["test"], experiment="exp-1")
+@pytest.fixture
+def permit(versioned: DatasetConfig, monkeypatch: pytest.MonkeyPatch) -> FinalEvaluationPermit:
+    """A final-evaluation permit, as if the pre-registration tag existed."""
+    monkeypatch.setattr(versionado, "_tag_exists", lambda root, tag: True)
+    return final_evaluation_permit(versioned, "evaluar-final")
+
+
+@pytest.mark.parametrize("protected", ["test", "desconocido"])
+def test_protected_sets_are_locked_without_a_permit(
+    versioned: DatasetConfig, protected: str
+) -> None:
+    with pytest.raises(LockedTestSetError, match="evaluar-final"):
+        split_ids(versioned, "aleatorio", ["val", protected], experiment="exp-1")
     assert not access_log_path(versioned).exists()
 
 
-def test_allowed_test_access_is_logged(versioned: DatasetConfig) -> None:
-    rows = split_ids(versioned, "aleatorio", ["test"], experiment="exp-1", evaluar_test=True)
+def test_permit_only_for_the_final_command_after_preregistration(
+    versioned: DatasetConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(versionado, "_tag_exists", lambda root, tag: False)
+    with pytest.raises(LockedTestSetError, match="preregistro-v1"):
+        final_evaluation_permit(versioned, "evaluar-final")
+    monkeypatch.setattr(versionado, "_tag_exists", lambda root, tag: True)
+    with pytest.raises(LockedTestSetError, match="only"):
+        final_evaluation_permit(versioned, "entrenar")
+    forged = FinalEvaluationPermit("evaluar-final", "preregistro-v1", object())
+    with pytest.raises(LockedTestSetError):
+        split_ids(versioned, "aleatorio", ["test"], experiment="exp-1", permit=forged)
+
+
+def test_allowed_access_is_logged(versioned: DatasetConfig, permit: FinalEvaluationPermit) -> None:
+    rows = split_ids(versioned, "aleatorio", ["test"], experiment="exp-1", permit=permit)
     assert list(rows["id"]) == ["c"]
-    split_ids(versioned, "por_tamano", ["val", "test"], experiment="exp-2", evaluar_test=True)
+    split_ids(versioned, "por_tamano", ["val", "test"], experiment="exp-2", permit=permit)
     lines = access_log_path(versioned).read_text(encoding="utf-8").splitlines()
     assert len(lines) == 2
-    date, experiment, version, fingerprint, protocol = lines[0].split("\t")
-    assert (experiment, version, protocol) == ("exp-1", "dataset-test", "aleatorio")
+    date, experiment, version, fingerprint, protocol, sets = lines[0].split("\t")
+    assert (experiment, version, protocol, sets) == ("exp-1", "dataset-test", "aleatorio", "test")
     assert fingerprint == read_version(versioned).huella[:12]
     assert date.startswith("20")
     assert lines[1].split("\t")[1] == "exp-2"
 
 
-def test_no_access_on_modified_data(versioned: DatasetConfig) -> None:
+def test_no_access_on_modified_data(
+    versioned: DatasetConfig, permit: FinalEvaluationPermit
+) -> None:
     versioned.rutas.metadata.write_text("id\n", encoding="utf-8")
     with pytest.raises(VersionError):
         split_ids(versioned, "aleatorio", ["train"], experiment="exp-1")
     with pytest.raises(VersionError):
-        split_ids(versioned, "aleatorio", ["test"], experiment="exp-1", evaluar_test=True)
+        split_ids(versioned, "aleatorio", ["test"], experiment="exp-1", permit=permit)
     assert not access_log_path(versioned).exists()
 
 
@@ -131,12 +161,12 @@ def test_cli_versionar(versioned: DatasetConfig, tmp_path: Path) -> None:
     assert bad.exit_code == 1 and "modificado data/metadata.csv" in bad.output
 
 
-def test_version_records_generator_libraries(versioned: DatasetConfig) -> None:
+def test_version_records_python_and_libraries(versioned: DatasetConfig) -> None:
     version = read_version(versioned)
-    assert version.librerias == {
-        "qiskit": importlib.metadata.version("qiskit"),
-        "mqt.bench": importlib.metadata.version("mqt.bench"),
-    }
+    assert version.librerias["python"] == platform.python_version()
+    for name in ("qiskit", "mqt.bench", "torch", "torch-geometric", "numpy", "scikit-learn"):
+        assert version.librerias[name] == importlib.metadata.version(name)
+    assert "optuna" in version.librerias
     assert library_differences(versioned) == []
 
 

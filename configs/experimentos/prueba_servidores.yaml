@@ -1,0 +1,7 @@
+# Phase 9 check of the shared servers (qcclass prueba-servidores): one MLflow run and a few
+# trivial Optuna trials per machine, all in the same study.
+
+experimento_mlflow: prueba_fase9
+estudio_optuna: prueba_fase9
+intentos: 2
+semilla: 42

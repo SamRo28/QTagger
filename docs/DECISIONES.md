@@ -1,15 +1,19 @@
 # Decisiones del proyecto
 
 Registro vivo de cómo se trabaja en este repositorio y de las decisiones que se apartan de
-`PLAN.md` o lo concretan. Se actualiza en cada fase, en el mismo commit que el código.
+los planes (`PLAN_Dataset.md`, fases 1 a 8; `PLAN_Modelos.md`, fases 9 a 18) o los concretan.
+Se actualiza en cada fase, en el mismo commit que el código.
 
 ## Forma de trabajo
 
-- **Fases.** Se sigue `PLAN.md` fase a fase. Al terminar una fase se ejecutan sus
+- **Fases.** Se siguen los planes fase a fase. Al terminar una fase se ejecutan sus
   comprobaciones y tests, se presenta un resumen y no se empieza la siguiente sin
   confirmación explícita.
-- **Commits.** Solo los hace el responsable del proyecto. Cada commit de fase incluye la
-  actualización de este archivo.
+- **Commits.** Los hace Claude desde la Fase 7 (autorizado por el responsable); un commit por
+  fase con la actualización de este archivo. Las fases que necesitan otros equipos pueden
+  llevar un commit de implementación (para poder hacer `git pull`) y otro de cierre.
+- **Equipos.** Papel, rutas, IPs, `.env`, servidores y trabajos largos en
+  [EQUIPOS.md](EQUIPOS.md) (en español, como este archivo, por ser de operación).
 - **APIs reales.** Antes de usar una librería se comprueba la versión instalada
   (`pip show`, `inspect`, `help`). Si el plan no encaja con la API real, se para, se avisa y
   se propone una alternativa; no se improvisa.
@@ -29,17 +33,23 @@ Registro vivo de cómo se trabaja en este repositorio y de las decisiones que se
 - **Reproducibilidad.** Python 3.13, versiones fijadas en `requirements.lock`
   (`make install` instala con ellas como restricciones). La generación es incremental e
   idempotente; `--forzar` regenera.
-- **Versión del dataset.** `data/VERSION.json` (versionado en git, etiqueta `dataset-v1`)
-  guarda el SHA-256 de `metadata.csv`, de cada CSV de `data/splits/` y de
-  `data/graphs/etiquetas.json`, más una huella global y las versiones de Qiskit y MQT Bench
-  con que se generaron. Todo experimento empieza llamando a
-  `qcclass.versionado.begin_experiment()`, que compara las huellas (las de cada archivo y la
-  global) y aborta si no coinciden; una versión distinta de Qiskit o MQT Bench solo avisa.
-  Todo resultado desde `dataset-v1` guarda `version_stamp()` (nombre y huella).
-  `qcclass versionar --comprobar` hace las mismas comprobaciones.
-- **Test protegido.** Las particiones solo se leen con `qcclass.versionado.split_ids`: pedir
-  `test` sin `--evaluar-test` lanza `LockedTestSetError`; cada acceso permitido añade una
-  línea a `results/accesos_test.log` (fecha, experimento, versión, huella, protocolo).
+- **Versión del dataset.** `data/VERSION.json` (versionado en git; etiquetas `dataset-v1` y
+  `dataset-v1.1`) guarda el SHA-256 de `metadata.csv`, de cada CSV de `data/splits/`
+  (incluido `aleatorio_bloques.csv`) y de `data/graphs/etiquetas.json`, más una huella global
+  y las versiones de Python, Qiskit, MQT Bench, torch, PyTorch Geometric, NumPy,
+  scikit-learn y Optuna. Todo experimento empieza con `begin_experiment()` (dentro de
+  `qcclass.seguimiento.procedencia.start_provenance`), que compara las huellas y aborta si no
+  coinciden; una versión distinta de Python o de una librería solo avisa (`qcclass verificar
+  --estricto` la convierte en error). Todo resultado guarda `version_stamp()`.
+- **Conjuntos protegidos.** Las particiones solo se leen con `qcclass.versionado.split_ids`.
+  `test` y `desconocido` (de `abierto`) exigen un `FinalEvaluationPermit`, que solo da
+  `final_evaluation_permit(config, "evaluar-final")` y solo si existe la etiqueta
+  `preregistro-v1`; sin él, `LockedTestSetError`. Cada acceso añade una línea a
+  `results/accesos_test.log` (fecha, experimento, versión, huella, protocolo, conjuntos).
+- **Registro de experimentos.** Toda ejecución abre su run con
+  `qcclass.seguimiento.mlflow_cliente.tracked_run`, que comprueba el servidor y registra
+  versión y huella del dataset, commit (y si había cambios sin commit), equipo, versiones
+  instaladas, configuración completa y descripción del equipo. Nunca se registra en local.
 - **Idioma.** Carpetas y scripts en español sin tildes ni eñes; código, comentarios y
   documentación técnica en inglés. Este archivo está en español por ser el registro de
   trabajo con el responsable del proyecto.
@@ -120,6 +130,19 @@ Registro vivo de cómo se trabaja en este repositorio y de las decisiones que se
 | 2026-11-24 | M | Equipo Windows: RTX 3050 de portátil con 4 GB (no una 3060 de 6 GB). El barrido empieza en 25 000 nodos (25k, 50k, 100k, 200k, 400k) | Con 4 GB, 50 000 podría ya no caber | Empezar en 50 000 |
 | 2026-11-24 | M | El JSON guarda `memoria_inicial` con el modelo y el optimizador ya en el dispositivo, antes del peor caso y del primer lote: en CUDA `memory_reserved`, `memory_allocated`, y libre/total de `mem_get_info`; `contexto_y_otros_mb` = total − libre − reservada; `util_mb` = libre + reservada − asignada | `memory_reserved` no incluye el contexto CUDA (cientos de MB), que en 4 GB pesa | Solo `memory_reserved` |
 | 2026-11-24 | M | Medición en Colab T4 obligatoria (normal y con AMP, ambas con barrido). Si el driver de Colab es < 580 o la build CUDA 13.2 no funciona en la T4, el cuaderno instala torch 2.14.1 + cu126 (la última con CUDA 12.6 para Python 3.13); la versión usada queda en `equipo.torch` | Garantizar la medición aunque el driver de Colab sea antiguo | Fijar siempre torch 2.14.1 en Colab |
+| 2026-11-24 | 9 | Bloques de validación cruzada: `StratifiedGroupKFold` (5, barajado, semilla derivada de `splits.semilla`) sobre los circuitos de train + val de `aleatorio` tal como están en el CSV (train ya con su tope), estratificado por etiqueta y agrupado por `group_id`; las variantes `solo_evaluacion` no intervienen y heredan el bloque por `group_id`. Lo crea `qcclass particiones` una sola vez (`bloques_cv` en `splits.yaml`). Resultado: 1847 grupos, 368–370 por bloque, toda etiqueta en los 5 bloques | El plan; la fase 10 aplica el tope y los pesos dentro de cada bloque | Bloques por grupo con `StratifiedKFold` |
+| 2026-11-24 | 9 | `dataset-v1.1` = `dataset-v1` + `aleatorio_bloques.csv` (ningún otro archivo cambia; comprobado con SHA-256) y versiones de Python, torch, PyG, NumPy, scikit-learn y Optuna en `VERSION.json` | Fijar los bloques con los que se seleccionan los hiperparámetros | — |
+| 2026-11-24 | 9 | Almacenamiento de Optuna: proxy gRPC de Optuna 5.1 (`run_grpc_proxy_server`) delante de un SQLite en el `m1pro`; clientes con `grpc://192.168.1.133:13000`. Optuna fijada a `>=5.1,<6` | El proxy existe en la versión instalada (experimental desde 4.2); no hay que instalar ni mantener un servidor de bases de datos; solo el proceso del proxy abre el SQLite, así que no hay bloqueos de archivo entre equipos; los dos clientes usan el mismo protocolo | PostgreSQL en el `m1pro` con `RDBStorage` |
+| 2026-11-24 | 9 | Consecuencia aceptada: el proxy no tiene *heartbeat* (`RDBStorage` sí), así que un intento cortado queda en `RUNNING`. La fase 12 lo resolverá en el propio programa: al arrancar, cada equipo marca como fallidos sus intentos `RUNNING` (atributo `equipo`) y los reencola con los mismos hiperparámetros, que se reanudan desde su punto de guardado | `RetryFailedTrialCallback` necesita *heartbeat* | Volver a PostgreSQL si esto resulta frágil |
+| 2026-11-24 | 9 | MLflow 3.18: `mlflow server --backend-store-uri sqlite:///… --artifacts-destination … --serve-artifacts --host 0.0.0.0 --port 5050`; `--allowed-hosts` por defecto (localhost e IPs privadas) | Base de datos y artefactos en el `m1pro`, servidos por el propio servidor; el puerto 5000 lo ocupa AirPlay en macOS | Artefactos en una carpeta compartida |
+| 2026-11-24 | 9 | Servidores gestionados con `qcclass servidores arrancar/parar/estado` (`make servidores`, `make parar-servidores`): procesos en su propio grupo (sobreviven a la terminal), pids y logs en `QCCLASS_SERVIDORES_DIR`, espera hasta que responden; en macOS, `caffeinate -i -s -w <pid de MLflow>` | Arranque y parada fiables y comprobables desde Python, con tests | Script de shell con `nohup` |
+| 2026-11-24 | 9 | Clientes: `.env` (no versionado, `python-dotenv`, el entorno tiene prioridad) con `QCCLASS_EQUIPO`, `QCCLASS_MLFLOW_URI` y `QCCLASS_OPTUNA_STORAGE`. Solo se aceptan servidores (`http(s)://` y `grpc://`/`postgresql://`/`mysql://`); antes de cada run se comprueba `/health` de MLflow y `wait_server_ready` de Optuna (5 s); `qcclass ping` comprueba ambos | Abortar con un mensaje claro en lugar de registrar en local en silencio | — |
+| 2026-11-24 | 9 | Protección de `test` y `desconocido` con un permiso que solo crea `final_evaluation_permit` para `evaluar-final` y si existe la etiqueta `preregistro-v1` (no basta un booleano `evaluar_test`) | El plan: solo `qcclass evaluar-final` (fase 17) puede leerlos | Booleano `--evaluar-test` en cualquier comando |
+| 2026-11-24 | 9 | Promedios macro (F1, exactitud balanceada) sobre las clases presentes en las filas evaluadas (soporte > 0); las predicciones de clases ausentes cuentan como errores de la clase verdadera. F1 por clase = 2TP/(2TP+FP+FN) | Los desgloses y los remuestreos pueden no contener todas las clases; coincide con scikit-learn con `labels` = clases presentes | Promedio sobre las 20 clases siempre |
+| 2026-11-24 | 9 | Bootstrap por grupos calculado con matrices de confusión por grupo y pesos multinomiales (10 000 remuestreos ≈ 1 s con 3000 grupos); intervalos por percentiles; p-valor pareado = 2·min(P(d ≤ 0), P(d ≥ 0)); Holm por pasos | Rápido y exacto; las métricas salen de la misma función que la estimación puntual | Remuestrear filas |
+| 2026-11-24 | 9 | Desglose por tamaño con `n_logico` (anchura lógica del grupo, la misma que usa `por_tamano`) | Coherencia con los protocolos | `n_qubits` canónico |
+| 2026-11-24 | 9 | Puntos de guardado: `epoca_NNNN.pt` atómicos, se conservan los 2 últimos, con los estados de todos los generadores aleatorios; carga con `weights_only=True`. Test: reanudar da los mismos pesos que el entrenamiento continuo | Reanudación exacta tras un corte | — |
+| 2026-11-24 | 9 | Mediciones `rtx3035*` renombradas a `rtx3050*` (archivo, `equipo.nombre`, `experimento`, `opciones.equipo`) y `RESUMEN.md` regenerado | Errata al lanzar la medición | — |
 | 2026-11-23 | M | Proyección con los nodos/s de la última época (la 2.ª por defecto) y los nodos de una época completa de train; Optuna = intentos × 5 bloques × 100 épocas, cada bloque con 4/5 de train; no incluye validación | Supuestos explícitos en el JSON (`proyeccion.supuestos`) | — |
 | 2026-11-23 | M | Nombre del equipo: nombre de host por defecto; en los comandos se usa `--equipo` (`m3pro`, `rtx3050`, `colab-t4`) | Nombres legibles en la tabla y sin datos personales del host en git | — |
 | 2026-11-23 | M | `results/medicion/` versionado en git (`/results/*` + `!/results/medicion/`) | Comparar equipos y conservar la medición | — |

@@ -1,0 +1,134 @@
+{
+  "fecha": "2026-11-24T11:16:20+00:00",
+  "experimento": "medicion_rtx3050-w4_cuda_amp",
+  "version_dataset": "dataset-v1",
+  "huella_dataset": "b820a9d626741fc0b670cca06e1ec44fe56e7af08d31fdecc3b7620e557ebae4",
+  "equipo": {
+    "nombre": "rtx3050-w4",
+    "sistema": "Linux",
+    "version_sistema": "6.6.87.2-microsoft-standard-WSL2",
+    "plataforma": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "wsl": true,
+    "cpu": "AMD Ryzen 7 4800H with Radeon Graphics",
+    "nucleos_fisicos": 8,
+    "nucleos_logicos": 16,
+    "ram_gb": 7.47,
+    "gpu": "NVIDIA GeForce RTX 3050 Laptop GPU",
+    "vram_gb": 4.0,
+    "capacidad_computo": "8.6",
+    "driver_nvidia": "621.24",
+    "python": "3.13.18",
+    "torch": "2.15.0+cu132",
+    "torch_geometric": "2.8.1",
+    "cuda": "13.2",
+    "cudnn": 92600
+  },
+  "dispositivo": "cuda",
+  "opciones": {
+    "dispositivo": "cuda",
+    "presupuesto_nodos": 100000,
+    "epocas": 2,
+    "max_lotes": null,
+    "num_workers": 4,
+    "amp": true,
+    "dim": 64,
+    "capas": 3,
+    "barrido": false,
+    "equipo": "rtx3050-w4"
+  },
+  "modelo": {
+    "nombre": "referencia_gine",
+    "parametros": 45146
+  },
+  "datos": {
+    "protocolo": "aleatorio",
+    "conjunto": "train",
+    "grafos": 6366,
+    "nodos_por_epoca": 6855960,
+    "max_nodos_grafo": 19937,
+    "grafos_mayores_que_presupuesto": 0,
+    "desconocidos_excluidos": 0
+  },
+  "mps_fallback": null,
+  "memoria_inicial": {
+    "memoria_reservada_mb": 2.0,
+    "memoria_asignada_mb": 0.2,
+    "memoria_total_mb": 4095.5,
+    "memoria_libre_driver_mb": 3297.7,
+    "contexto_y_otros_mb": 795.8,
+    "util_mb": 3299.5
+  },
+  "peor_caso": {
+    "id": "mapped_qaoa_n36_p2_c0",
+    "n_nodos": 19937,
+    "n_aristas": 24487,
+    "ok": true,
+    "tiempo_s": 0.825
+  },
+  "epocas": [
+    {
+      "epoca": 1,
+      "tiempo_total_s": 4.069,
+      "tiempo_datos_s": 0.684,
+      "tiempo_computo_s": 3.376,
+      "fraccion_espera_datos": 0.1419,
+      "lotes": 71,
+      "grafos": 6366,
+      "nodos": 6855960,
+      "nodos_s": 1738010.2,
+      "grafos_s": 1613.8,
+      "perdida_media": 2.89595,
+      "perdida_algoritmo": 1.95628,
+      "perdida_familia": 0.93966,
+      "memoria_gpu_max_mb": 277.3,
+      "memoria_gpu_reservada_max_mb": 356.0,
+      "ram_max_mb": 1861.9,
+      "ram_max_con_workers_mb": 6523.7,
+      "temperatura_gpu_max": null,
+      "temperatura_gpu_media": null,
+      "lecturas_temperatura": 0
+    },
+    {
+      "epoca": 2,
+      "tiempo_total_s": 3.681,
+      "tiempo_datos_s": 0.425,
+      "tiempo_computo_s": 3.248,
+      "fraccion_espera_datos": 0.1145,
+      "lotes": 72,
+      "grafos": 6366,
+      "nodos": 6855960,
+      "nodos_s": 1864378.3,
+      "grafos_s": 1731.14,
+      "perdida_media": 0.95572,
+      "perdida_algoritmo": 0.6791,
+      "perdida_familia": 0.27662,
+      "memoria_gpu_max_mb": 275.5,
+      "memoria_gpu_reservada_max_mb": 370.0,
+      "ram_max_mb": 1866.6,
+      "ram_max_con_workers_mb": 6524.2,
+      "temperatura_gpu_max": null,
+      "temperatura_gpu_media": null,
+      "lecturas_temperatura": 0
+    }
+  ],
+  "perdida_baja": true,
+  "proyeccion": {
+    "fuente": "epoca_2",
+    "cache_caliente": true,
+    "nodos_s": 1864378.3,
+    "nodos_por_epoca": 6855960,
+    "horas_por_epoca": 0.001,
+    "entrenamiento_completo_h": {
+      "50": 0.05,
+      "100": 0.1,
+      "200": 0.2
+    },
+    "optuna_h": {
+      "20": 8.2,
+      "50": 20.4
+    },
+    "supuestos": "solo entrenamiento (sin validación); Optuna = intentos x 5 bloques x 100 épocas, cada bloque entrena con 80% de train"
+  },
+  "barrido": null,
+  "duracion_total_s": 9.9
+}

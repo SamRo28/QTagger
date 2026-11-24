@@ -60,6 +60,7 @@ SPLITS_KEYS = (
     "minimo_por_clase_train",
     "balanceo",
     "por_nivel",
+    "bloques_cv",
 )
 BALANCING_MODES = ("muestreo", "ponderacion", "combinado")
 SPLIT_SETS = ("train", "val", "test")
@@ -220,6 +221,7 @@ class SplitsConfig:
     minimo_por_clase_train: int
     balanceo: BalancingConfig
     por_nivel: LevelSplitConfig
+    bloques_cv: int  # cross-validation blocks over train + val of ``aleatorio``
 
 
 # --------------------------------------------------------------------------------------------
@@ -546,6 +548,7 @@ def _parse_splits(data: Mapping[str, Any], ctx: str) -> SplitsConfig:
         minimo_por_clase_train=_as_int(*_get(data, "minimo_por_clase_train", ctx), minimum=0),
         balanceo=_parse_balancing(*_get(data, "balanceo", ctx)),
         por_nivel=_parse_level_split(*_get(data, "por_nivel", ctx)),
+        bloques_cv=_as_int(*_get(data, "bloques_cv", ctx), minimum=2),
     )
 
 
@@ -576,3 +579,71 @@ def load_splits_config(path: Path | str, dataset: DatasetConfig | None = None) -
     if dataset is not None and (errors := _check_splits_against_dataset(splits, dataset)):
         raise ConfigError(f"{path}:\n  - " + "\n  - ".join(errors))
     return splits
+
+
+# --------------------------------------------------------------------------------------------
+# Evaluation configuration (configs/evaluacion.yaml)
+# --------------------------------------------------------------------------------------------
+
+EVALUATION_KEYS = ("semilla", "bootstrap", "top_k")
+
+
+@dataclass(frozen=True)
+class BootstrapConfig:
+    """Group bootstrap settings."""
+
+    remuestreos: int
+    nivel: float  # confidence level of the intervals, e.g. 0.95
+
+
+@dataclass(frozen=True)
+class EvaluationConfig:
+    """Contents of ``configs/evaluacion.yaml``."""
+
+    semilla: int
+    bootstrap: BootstrapConfig
+    top_k: int
+
+
+def load_evaluation_config(path: Path | str) -> EvaluationConfig:
+    """Load ``evaluacion.yaml``.
+
+    Raises:
+        ConfigError: if the file is malformed.
+    """
+    path = Path(path)
+    data = _read_yaml(path)
+    ctx = path.name
+    _warn_unknown_keys(data, EVALUATION_KEYS, ctx)
+    bootstrap = _as_mapping(*_get(data, "bootstrap", ctx))
+    bootstrap_ctx = f"{ctx}[bootstrap]"
+    _warn_unknown_keys(bootstrap, ("remuestreos", "nivel"), bootstrap_ctx)
+    level = _as_fraction(*_get(bootstrap, "nivel", bootstrap_ctx))
+    if not 0 < level < 1:
+        raise ConfigError(f"{bootstrap_ctx}[nivel]: must be between 0 and 1, got {level}")
+    return EvaluationConfig(
+        semilla=_as_int(*_get(data, "semilla", ctx), minimum=0),
+        bootstrap=BootstrapConfig(
+            remuestreos=_as_int(*_get(bootstrap, "remuestreos", bootstrap_ctx), minimum=1),
+            nivel=level,
+        ),
+        top_k=_as_int(*_get(data, "top_k", ctx), minimum=1),
+    )
+
+
+# --------------------------------------------------------------------------------------------
+# Experiment configurations (configs/experimentos/*.yaml)
+# --------------------------------------------------------------------------------------------
+
+
+def load_experiment_config(path: Path | str, required_keys: Iterable[str]) -> dict[str, Any]:
+    """Load an experiment configuration and check that ``required_keys`` are present.
+
+    Raises:
+        ConfigError: if the file is missing, malformed or lacks a required key.
+    """
+    path = Path(path)
+    data = _read_yaml(path)
+    if missing := [key for key in required_keys if key not in data]:
+        raise ConfigError(f"{path.name}: missing keys {missing}")
+    return data

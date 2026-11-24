@@ -76,7 +76,7 @@ Reports are written to `results/`: `informe_deduplicacion.md`, `informe_particio
 files on disk). Decisions that refine `PLAN.md` are logged in `docs/DECISIONES.md`.
 
 Individual steps are available as subcommands (`qcclass --help`): `generar`, `oraculos`,
-`normalizar`, `deduplicar`, `formatos`, `particiones`, `calidad`, `versionar`, `verificar`.
+`normalizar`, `deduplicar`, `formatos`, `particiones`, `calidad`, `versionar`, `verificar`, `ping`, `servidores`.
 
 `make clean-data` deletes every generated file under `data/`.
 
@@ -101,6 +101,15 @@ qcclass medir --resumen                              # results/medicion/RESUMEN.
 
 `notebooks/medicion_colab.ipynb` runs the measurement on a Google Colab T4 (required, plain and
 with `--amp`); it falls back to torch 2.14.1 + CUDA 12.6 if Colab's driver is older than 580.
+
+## Experiment infrastructure
+
+Machines, servers and per-machine settings are described in `docs/EQUIPOS.md` (Spanish).
+MLflow and a shared Optuna storage run on one machine (`make servidores`); every other
+machine sets `QCCLASS_MLFLOW_URI` and `QCCLASS_OPTUNA_STORAGE` in an unversioned `.env`
+(template: `.env.example`) and checks them with `qcclass ping`. The common evaluation module
+(`src/qcclass/evaluacion/`) computes the metrics, breakdowns and group-bootstrap intervals
+used by every model.
 
 ## Development
 

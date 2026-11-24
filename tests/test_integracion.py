@@ -30,7 +30,7 @@ def test_whole_pipeline_on_mini_configuration(repo_root: Path, tmp_path: Path) -
     args = ["todo", "--config", str(dataset_yaml), "--splits", str(splits_yaml), "--procesos", "2"]
     result = CliRunner().invoke(app, args)
     assert result.exit_code == 0, result.output
-    assert "Coherence checks: 21/21 ok" in result.output
+    assert "Coherence checks: 22/22 ok" in result.output
 
     config = load_dataset_config(dataset_yaml)
     report = (config.rutas.resultados / DATASET_REPORT_NAME).read_text(encoding="utf-8")

@@ -27,15 +27,17 @@ app = typer.Typer(
 
 ConfigOption = Annotated[Path, typer.Option("--config", help="Dataset configuration file.")]
 SplitsOption = Annotated[Path, typer.Option("--splits", help="Split configuration file.")]
-# Every command that evaluates models must take this option and pass it to
-# ``qcclass.versionado.split_ids``: without it, the test sets cannot be read.
+# Only ``qcclass evaluar-final`` (phase 17) takes this option: it asks for a
+# ``qcclass.versionado.final_evaluation_permit``, without which the protected sets (test and
+# the unknown circuits of ``abierto``) cannot be read.
 EvaluarTestOption = Annotated[
     bool,
     typer.Option(
         "--evaluar-test",
-        help="Allow reading the test sets (logged in results/accesos_test.log).",
+        help="Read the protected sets (test, desconocido); logged in results/accesos_test.log.",
     ),
 ]
+DEFAULT_SERVER_TEST_CONFIG = Path("configs/experimentos/prueba_servidores.yaml")
 
 
 def _split_list(value: str | None) -> list[str] | None:
@@ -275,6 +277,10 @@ def particiones(
             typer.echo(f"    below minimum: {', '.join(report.below_minimum[protocol])}")
     for label, sizes in report.size_exclusions.items():
         typer.echo(f"  por_tamano excludes {label}: only {len(sizes)} sizes {sizes}")
+    if report.blocks is not None:
+        state = "created" if report.blocks_created else "kept"
+        per_block = report.blocks["bloque"].value_counts().sort_index().to_dict()
+        typer.echo(f"  cross-validation blocks ({state}): groups per block {per_block}")
     typer.echo(f"\nReport: {report.report_path}")
 
 
@@ -350,8 +356,9 @@ def todo(
         step()
 
 
-def _check_version(dataset: "DatasetConfig") -> None:
-    """Print whether the data match ``VERSION.json``; exit with code 1 if they do not."""
+def _check_version(dataset: "DatasetConfig", *, strict: bool = False) -> None:
+    """Print whether the data match ``VERSION.json``; exit with code 1 if they do not (or,
+    with ``strict``, if Python or a tracked library has another version)."""
     from qcclass.versionado import (
         VersionError,
         library_differences,
@@ -371,9 +378,15 @@ def _check_version(dataset: "DatasetConfig") -> None:
         for difference in differences:
             typer.echo(f"  {difference}")
         raise typer.Exit(code=1)
-    typer.echo(f"Dataset matches {version.nombre} ({version.huella[:12]})")
+    typer.echo(
+        f"Dataset matches {version.nombre} ({version.huella[:12]}, {len(version.archivos)} files)"
+    )
+    if not libraries:
+        typer.echo(f"Python and libraries match ({len(version.librerias)} versions)")
     for difference in libraries:
-        typer.echo(f"  warning, generator library differs: {difference}")
+        typer.echo(f"  {'ERROR' if strict else 'warning'}, version differs: {difference}")
+    if libraries and strict:
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -404,9 +417,103 @@ def versionar(
 
 
 @app.command()
-def verificar(config: ConfigOption = DEFAULT_DATASET_CONFIG) -> None:
-    """Check the fingerprints of the data against VERSION.json and name any failing file."""
-    _check_version(_load_dataset_config(config))
+def verificar(
+    config: ConfigOption = DEFAULT_DATASET_CONFIG,
+    estricto: Annotated[
+        bool, typer.Option("--estricto", help="Also fail if a library version differs.")
+    ] = False,
+) -> None:
+    """Check the data fingerprints and the library versions against VERSION.json."""
+    _check_version(_load_dataset_config(config), strict=estricto)
+
+
+@app.command()
+def ping(config: ConfigOption = DEFAULT_DATASET_CONFIG) -> None:
+    """Check the connection with the MLflow server and the shared Optuna storage."""
+    from qcclass.seguimiento.entorno import ServerConnectionError, load_env, machine
+    from qcclass.seguimiento.mlflow_cliente import check_mlflow, tracking_uri
+    from qcclass.seguimiento.optuna_cliente import connect, storage_uri, study_summary
+
+    dataset = _load_dataset_config(config)
+    env = load_env(dataset.rutas.raiz)
+    typer.echo(f"Machine: {machine('(QCCLASS_EQUIPO not set)')}; .env: {env or 'not found'}")
+    failures = 0
+    try:
+        uri = tracking_uri()
+        typer.echo(f"MLflow {uri}: ok, server {check_mlflow(uri)}")
+    except ServerConnectionError as exc:
+        typer.echo(f"MLflow: FAILED: {exc}", err=True)
+        failures += 1
+    try:
+        uri = storage_uri()
+        studies = study_summary(connect(uri))
+        typer.echo(f"Optuna {uri}: ok, {len(studies)} studies")
+    except ServerConnectionError as exc:
+        typer.echo(f"Optuna: FAILED: {exc}", err=True)
+        failures += 1
+    if failures:
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def servidores(
+    accion: Annotated[str, typer.Argument(help="arrancar, parar or estado.")],
+    config: ConfigOption = DEFAULT_DATASET_CONFIG,
+) -> None:
+    """Start, stop or inspect the MLflow and Optuna servers (on the server machine)."""
+    from qcclass.seguimiento import servidores as servers
+    from qcclass.seguimiento.entorno import ServerConnectionError, load_env
+
+    dataset = _load_dataset_config(config)
+    load_env(dataset.rutas.raiz)
+    try:
+        settings = servers.ServerSettings.from_env()
+        if accion == "arrancar":
+            pids = servers.start(settings)
+            typer.echo(f"Servers running: {pids}")
+            typer.echo(
+                f"MLflow: http://<this machine>:{settings.mlflow_port}  "
+                f"Optuna: grpc://<this machine>:{settings.optuna_port}"
+            )
+        elif accion == "parar":
+            stopped = servers.stop(settings)
+            typer.echo(f"Stopped: {[name for name, done in stopped.items() if done] or 'none'}")
+        elif accion == "estado":
+            for service, state in servers.status(settings).items():
+                typer.echo(f"{service}: {state}")
+        else:
+            raise typer.BadParameter("use arrancar, parar or estado")
+    except ServerConnectionError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+@app.command("prueba-servidores")
+def prueba_servidores(
+    config: ConfigOption = DEFAULT_DATASET_CONFIG,
+    experimento: Annotated[
+        Path, typer.Option(help="Experiment configuration.")
+    ] = DEFAULT_SERVER_TEST_CONFIG,
+) -> None:
+    """Log a test run in MLflow and add trials to a shared Optuna study (phase 9 check)."""
+    from qcclass.config import ConfigError, load_experiment_config
+    from qcclass.seguimiento.entorno import ServerConnectionError
+    from qcclass.seguimiento.prueba import run_server_test
+    from qcclass.versionado import VersionError
+
+    dataset = _load_dataset_config(config)
+    try:
+        settings = load_experiment_config(
+            experimento, ("experimento_mlflow", "estudio_optuna", "intentos", "semilla")
+        )
+        result = run_server_test(dataset, settings)
+    except (ConfigError, ServerConnectionError, VersionError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"MLflow run {result.run_id} in experiment {result.experiment}")
+    typer.echo(f"Optuna study {result.study}: {result.added} trials added by {result.machine}")
+    for machine_name, count in sorted(result.trials_by_machine.items()):
+        typer.echo(f"  {machine_name}: {count} complete trials")
 
 
 @app.command()

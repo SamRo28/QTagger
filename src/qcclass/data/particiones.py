@@ -26,6 +26,11 @@ Protocols:
   (NATIVEGATES + MAPPED) of other groups.
 * ``abierto``: ``aleatorio`` plus the unknown circuits as ``desconocido``.
 
+Cross-validation blocks: ``aleatorio_bloques.csv`` (``group_id``, ``bloque``) assigns every
+group of train + val of ``aleatorio`` to one of ``bloques_cv`` blocks with scikit-learn's
+``StratifiedGroupKFold`` (stratified by label, seeded). Evaluation-only variants are not used
+to build the blocks; they inherit the block of their group through ``group_id``.
+
 Balancing (``balanceo``, val and test always kept whole, nothing deleted from disk):
 ``muestreo`` samples the train groups of each label down to ``max_bases_por_clase`` (by
 default ``factor_mediana`` x the median of train groups per label); ``ponderacion`` keeps
@@ -44,7 +49,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import GroupShuffleSplit
+from sklearn.model_selection import GroupShuffleSplit, StratifiedGroupKFold
 
 from qcclass.circuitos import write_text_atomic
 from qcclass.config import DatasetConfig, SplitsConfig
@@ -57,6 +62,9 @@ logger = logging.getLogger(__name__)
 
 PROTOCOLS = ("aleatorio", "por_tamano", "oraculos_no_vistos", "por_nivel", "abierto")
 TRAIN, VAL, TEST, UNKNOWN = "train", "val", "test", "desconocido"
+CV_PROTOCOL = "aleatorio"
+BLOCKS_FILE = "aleatorio_bloques.csv"
+BLOCK_COLUMNS = ("group_id", "bloque")
 SPLIT_COLUMNS = ("id", "conjunto", "solo_evaluacion")
 ORACLE_FAMILY = "oraculos"
 REPORT_NAME = "informe_particiones.md"
@@ -79,12 +87,21 @@ def candidate_rows(
     rows["desconocido"] = rows["algoritmo"].isin(sorted(unknown))
     rows["solo_evaluacion"] = rows["exclusion"] == LABELLED_VARIANT
     rows["n_qubits"] = rows["n_qubits"].astype(int)
-    # logical size of the group (raw rows): canonical widths can differ within a group, e.g.
-    # routed mapped circuits activate extra physical qubits
+    rows["n_logico"] = logical_sizes(metadata, rows)
+    return rows
+
+
+def logical_sizes(metadata: pd.DataFrame, rows: pd.DataFrame) -> pd.Series:
+    """Logical size of the group of every row (``n_qubits`` of its raw rows).
+
+    Canonical widths can differ within a group (routed ``mapped`` circuits activate extra
+    physical qubits), so protocols and size breakdowns use the logical size of the group.
+    Rows whose group has no raw row keep their own ``n_qubits``.
+    """
     raw = metadata[metadata["variante_comp"] == ""]
     logical = raw.groupby("group_id")["n_qubits"].first().astype(int)
-    rows["n_logico"] = rows["group_id"].map(logical).fillna(rows["n_qubits"]).astype(int)
-    return rows
+    own = rows["n_qubits"].astype(int)
+    return rows["group_id"].map(logical).fillna(own).astype(int)
 
 
 # --------------------------------------------------------------------------------------------
@@ -306,6 +323,8 @@ class SplitsReport:
     below_minimum: dict[str, list[str]]
     size_exclusions: dict[str, list[int]]
     report_path: Path
+    blocks: pd.DataFrame | None = None
+    blocks_created: bool = False
 
 
 def split_path(config: DatasetConfig, protocol: str) -> Path:
@@ -316,6 +335,67 @@ def split_path(config: DatasetConfig, protocol: str) -> Path:
 def balance_path(config: DatasetConfig, protocol: str) -> Path:
     """``<splits>/balanceo_<protocol>.json``: cap used and loss weights."""
     return config.rutas.splits / f"balanceo_{protocol}.json"
+
+
+def blocks_path(config: DatasetConfig) -> Path:
+    """``<splits>/aleatorio_bloques.csv``: cross-validation block of every group."""
+    return config.rutas.splits / BLOCKS_FILE
+
+
+def cv_blocks(rows: pd.DataFrame, table: pd.DataFrame, splits: SplitsConfig) -> pd.DataFrame:
+    """Block (0 .. ``bloques_cv`` - 1) of every group of train + val of ``aleatorio``.
+
+    ``StratifiedGroupKFold`` over the circuits of train + val (evaluation-only variants
+    left out), stratified by label and grouped by ``group_id``, with a seed derived from the
+    split seed. Returns the columns ``group_id`` and ``bloque``, sorted by ``group_id``.
+    """
+    pool_ids = table.loc[table["conjunto"].isin([TRAIN, VAL]) & ~table["solo_evaluacion"], "id"]
+    pool = rows[rows["id"].isin(pool_ids)].sort_values("id")
+    folds = StratifiedGroupKFold(
+        n_splits=splits.bloques_cv,
+        shuffle=True,
+        random_state=derive_seed(splits.semilla, CV_PROTOCOL, "bloques"),
+    )
+    block_of: dict[str, int] = {}
+    for block, (_, held_out) in enumerate(
+        folds.split(pool, pool["etiqueta"], groups=pool["group_id"])
+    ):
+        block_of.update(dict.fromkeys(pool["group_id"].iloc[held_out], block))
+    variants = rows[rows["id"].isin(table.loc[table["solo_evaluacion"], "id"])]
+    orphans = sorted(set(variants["group_id"]) - set(block_of))
+    if orphans:
+        logger.warning("%d evaluation-only groups have no block: %s", len(orphans), orphans[:5])
+    blocks = pd.DataFrame(sorted(block_of.items()), columns=list(BLOCK_COLUMNS))
+    return blocks.astype({"bloque": int})
+
+
+def create_blocks(
+    config: DatasetConfig,
+    splits: SplitsConfig,
+    rows: pd.DataFrame,
+    table: pd.DataFrame,
+    *,
+    force: bool = False,
+) -> tuple[pd.DataFrame, bool]:
+    """Write ``aleatorio_bloques.csv`` if missing (or with ``force``); return (blocks, created)."""
+    path = blocks_path(config)
+    if path.is_file() and not force:
+        return pd.read_csv(path, dtype={"group_id": str, "bloque": int}), False
+    blocks = cv_blocks(rows, table, splits)
+    write_table(blocks, path)
+    logger.info("%d groups assigned to %d blocks", len(blocks), splits.bloques_cv)
+    return blocks, True
+
+
+def block_summary(blocks: pd.DataFrame, rows: pd.DataFrame) -> pd.DataFrame:
+    """Groups per label and block (labels of the regular, known circuits)."""
+    labels = rows[~rows["solo_evaluacion"]].drop_duplicates("group_id")
+    joined = blocks.merge(labels[["group_id", "etiqueta"]], on="group_id", how="left")
+    summary = joined.pivot_table(
+        index="etiqueta", columns="bloque", values="group_id", aggfunc="count", fill_value=0
+    )
+    summary.columns = [f"bloque {c}" for c in summary.columns]
+    return summary.rename_axis("etiqueta").reset_index()
 
 
 def _read_split(path: Path) -> pd.DataFrame:
@@ -379,8 +459,13 @@ def create_splits(
             logger.warning(
                 "%s: labels below minimo_por_clase_train=%d: %s", protocol, minimum, labels
             )
-    report = write_split_report(config, splits, rows, tables, caps, low, excluded)
-    return SplitsReport(tables, tuple(created), caps, low, excluded, report)
+    blocks, blocks_created = None, False
+    if CV_PROTOCOL in tables:
+        blocks, blocks_created = create_blocks(
+            config, splits, rows, tables[CV_PROTOCOL], force=force
+        )
+    report = write_split_report(config, splits, rows, tables, caps, low, excluded, blocks)
+    return SplitsReport(tables, tuple(created), caps, low, excluded, report, blocks, blocks_created)
 
 
 # --------------------------------------------------------------------------------------------
@@ -424,6 +509,7 @@ def write_split_report(
     caps: dict[str, int | None],
     low: dict[str, list[str]],
     excluded: dict[str, list[int]],
+    blocks: pd.DataFrame | None = None,
 ) -> Path:
     """Write ``results/informe_particiones.md``."""
     by_label = rows[~rows["desconocido"] & ~rows["solo_evaluacion"]]
@@ -467,6 +553,13 @@ def write_split_report(
         "## Circuitos con F7 (variante etiquetada) en test por etiqueta",
         _markdown(labelled),
     ]
+    if blocks is not None:
+        sections += [
+            f"## Bloques de validación cruzada ({CV_PROTOCOL}, train + val)",
+            f"`{BLOCKS_FILE}`: `StratifiedGroupKFold` con {splits.bloques_cv} bloques, "
+            "estratificado por etiqueta. Grupos por etiqueta y bloque:",
+            _markdown(block_summary(blocks, rows)),
+        ]
     path = config.rutas.resultados / REPORT_NAME
     write_text_atomic("\n\n".join(sections) + "\n", path)
     return path

@@ -314,8 +314,11 @@ def coherence_checks(config: DatasetConfig, metadata: pd.DataFrame) -> list[Cohe
     labelled = set(canonical.loc[canonical["variante_comp"] == LABELLED_VARIANT, "id"])
     gate_labels = {path.stem for path in config.rutas.gate_labels.glob("*.json")}
     checks.append(_ids_check("F7: etiquetas frente a variantes etiquetadas", labelled, gate_labels))
+    from qcclass.data.particiones import CV_PROTOCOL, PROTOCOLS, blocks_path, split_path
+
     groups = metadata.set_index("id")["group_id"]
-    for split_file in sorted(config.rutas.splits.glob("*.csv")):
+    protocol_files = [split_path(config, p) for p in PROTOCOLS if split_path(config, p).is_file()]
+    for split_file in protocol_files:
         table = pd.read_csv(split_file, dtype=str)
         checks.append(
             CoherenceCheck(
@@ -329,6 +332,19 @@ def coherence_checks(config: DatasetConfig, metadata: pd.DataFrame) -> list[Cohe
             CoherenceCheck(
                 f"particiones/{split_file.name}: grupos en más de un conjunto",
                 sorted(leaked[leaked > 1].index),
+            )
+        )
+    if blocks_path(config).is_file() and split_path(config, CV_PROTOCOL).is_file():
+        blocks = pd.read_csv(blocks_path(config), dtype=str)
+        table = pd.read_csv(split_path(config, CV_PROTOCOL), dtype=str)
+        pool = table[table["conjunto"].isin(["train", "val"])]["id"].map(groups)
+        wrong = (set(blocks["group_id"]) - set(pool)) | set(
+            blocks.loc[blocks["group_id"].duplicated(), "group_id"]
+        )
+        checks.append(
+            CoherenceCheck(
+                f"particiones/{blocks_path(config).name}: grupos repetidos o fuera de train + val",
+                sorted(wrong),
             )
         )
     return checks

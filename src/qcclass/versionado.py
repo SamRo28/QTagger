@@ -2,24 +2,28 @@
 
 Version. ``<rutas.version>`` (``data/VERSION.json``, versioned in git) records the SHA-256
 of ``metadata.csv``, of every CSV in ``<splits>/`` and of ``<graphs>/etiquetas.json``, a
-global fingerprint of all of them and the versions of the libraries that generated the data
-(Qiskit and MQT Bench). Every result produced from the dataset must store
-:func:`version_stamp`, which refuses to work if the files no longer match the version, and
-every experiment starts with :func:`begin_experiment`, which compares the fingerprints.
+global fingerprint of all of them and the versions of Python and of the libraries that
+generate the data or train and evaluate the models (:data:`TRACKED_LIBRARIES`). Every result
+produced from the dataset must store :func:`version_stamp`, which refuses to work if the
+files no longer match the version, and every experiment starts with :func:`begin_experiment`,
+which compares the fingerprints.
 
-Test protection. :func:`split_ids` is the only way to read the identifiers of a split
-protocol. Asking for ``test`` without ``evaluar_test=True`` (the ``--evaluar-test`` option of
-the commands) raises :class:`LockedTestSetError`; an allowed access appends a line (date,
-experiment, dataset version, protocol) to ``<resultados>/accesos_test.log``.
+Protected sets. :func:`split_ids` is the only way to read the identifiers of a split protocol.
+The protected sets (``test`` and the ``desconocido`` circuits of ``abierto``) can only be read
+with a :class:`FinalEvaluationPermit`, which only :func:`final_evaluation_permit` creates, for
+the ``evaluar-final`` command and once the pre-registration tag exists. Without it,
+:class:`LockedTestSetError` is raised; every allowed access appends a line (date, experiment,
+dataset version, fingerprint, protocol, sets) to ``<resultados>/accesos_test.log``.
 """
 
 import hashlib
 import importlib.metadata
 import json
 import logging
+import platform
 import subprocess
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -32,10 +36,21 @@ logger = logging.getLogger(__name__)
 
 LABEL_VOCABULARY_FILE = "etiquetas.json"  # written by the formats step in <graphs>/
 TEST_ACCESS_LOG = "accesos_test.log"
-TEST_SET = "test"
+PROTECTED_SETS = ("test", "desconocido")
+FINAL_COMMAND = "evaluar-final"
+PREREGISTRATION_TAG = "preregistro-v1"
 _CHUNK = 1 << 20
-# distributions whose versions determine the generated circuits
-GENERATOR_LIBRARIES = ("qiskit", "mqt.bench")
+# distributions whose versions determine the data, the models or their evaluation
+TRACKED_LIBRARIES = (
+    "qiskit",
+    "mqt.bench",
+    "torch",
+    "torch-geometric",
+    "numpy",
+    "scikit-learn",
+    "optuna",
+)
+PYTHON_KEY = "python"
 
 
 class VersionError(RuntimeError):
@@ -43,7 +58,19 @@ class VersionError(RuntimeError):
 
 
 class LockedTestSetError(PermissionError):
-    """A test set was requested without the explicit ``--evaluar-test`` option."""
+    """A protected set was requested without a final-evaluation permit."""
+
+
+_PERMIT_TOKEN = object()
+
+
+@dataclass(frozen=True)
+class FinalEvaluationPermit:
+    """Permission to read the protected sets; only :func:`final_evaluation_permit` makes one."""
+
+    command: str
+    tag: str
+    _token: object = field(repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -106,9 +133,10 @@ def _git_commit(root: Path) -> str:
 
 
 def library_versions() -> dict[str, str]:
-    """Installed versions of :data:`GENERATOR_LIBRARIES` (``"no instalada"`` if missing)."""
-    versions = {}
-    for name in GENERATOR_LIBRARIES:
+    """Python version and installed versions of :data:`TRACKED_LIBRARIES`
+    (``"no instalada"`` if missing)."""
+    versions = {PYTHON_KEY: platform.python_version()}
+    for name in TRACKED_LIBRARIES:
         try:
             versions[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
@@ -181,12 +209,12 @@ def version_stamp(config: DatasetConfig) -> dict[str, str]:
 
 
 def library_differences(config: DatasetConfig) -> list[str]:
-    """Generator libraries whose installed version differs from the one in ``VERSION.json``."""
+    """Python and libraries whose installed version differs from the one in ``VERSION.json``."""
     recorded = read_version(config).librerias
     installed = library_versions()
     return [
         f"{name}: dataset {recorded.get(name, '?')}, instalada {installed[name]}"
-        for name in GENERATOR_LIBRARIES
+        for name in installed
         if recorded.get(name) != installed[name]
     ]
 
@@ -195,9 +223,9 @@ def begin_experiment(config: DatasetConfig, experiment: str) -> dict[str, str]:
     """Check the dataset at the start of an experiment and return its version stamp.
 
     Every experiment command calls this before doing anything else: the files must match the
-    fingerprints of ``VERSION.json`` (otherwise :class:`VersionError`). A different Qiskit or
-    MQT Bench version only logs a warning, because experiments read the stored circuits and
-    never regenerate them.
+    fingerprints of ``VERSION.json`` (otherwise :class:`VersionError`). A different Python or
+    library version only logs a warning: experiments read the stored circuits and never
+    regenerate them, and the versions actually used are recorded with every run.
     """
     if not experiment:
         raise ValueError("every experiment must have a name")
@@ -223,8 +251,42 @@ def access_log_path(config: DatasetConfig) -> Path:
     return config.rutas.resultados / TEST_ACCESS_LOG
 
 
-def log_test_access(config: DatasetConfig, experiment: str, protocol: str) -> str:
-    """Append one access line (date, experiment, dataset version, protocol) and return it."""
+def _tag_exists(root: Path, tag: str) -> bool:
+    """True if the git tag exists in the repository at ``root``."""
+    try:
+        subprocess.run(
+            ["git", "rev-parse", "--quiet", "--verify", f"refs/tags/{tag}"],
+            cwd=root,
+            capture_output=True,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    return True
+
+
+def final_evaluation_permit(config: DatasetConfig, command: str) -> FinalEvaluationPermit:
+    """Permit to read the protected sets, only for ``evaluar-final`` after pre-registration.
+
+    Raises:
+        LockedTestSetError: for any other command, or if the tag
+            :data:`PREREGISTRATION_TAG` does not exist yet.
+    """
+    if command != FINAL_COMMAND:
+        raise LockedTestSetError(f"only `qcclass {FINAL_COMMAND}` may read the protected sets")
+    if not _tag_exists(config.rutas.raiz, PREREGISTRATION_TAG):
+        raise LockedTestSetError(
+            f"the pre-registration tag {PREREGISTRATION_TAG} does not exist: "
+            "the protected sets stay locked"
+        )
+    return FinalEvaluationPermit(command, PREREGISTRATION_TAG, _PERMIT_TOKEN)
+
+
+def log_test_access(
+    config: DatasetConfig, experiment: str, protocol: str, sets: Sequence[str]
+) -> str:
+    """Append one access line (date, experiment, dataset version, fingerprint, protocol,
+    protected sets) and return it."""
     stamp = version_stamp(config)
     line = "\t".join(
         [
@@ -233,6 +295,7 @@ def log_test_access(config: DatasetConfig, experiment: str, protocol: str) -> st
             stamp["version_dataset"],
             stamp["huella_dataset"][:12],
             protocol,
+            ",".join(sets),
         ]
     )
     path = access_log_path(config)
@@ -249,23 +312,24 @@ def split_ids(
     sets: Sequence[str],
     *,
     experiment: str,
-    evaluar_test: bool = False,
+    permit: FinalEvaluationPermit | None = None,
 ) -> pd.DataFrame:
     """Rows (``id``, ``conjunto``, ``solo_evaluacion``) of the requested sets of a protocol.
 
     Raises:
-        LockedTestSetError: if ``test`` is requested without ``evaluar_test``.
+        LockedTestSetError: if a protected set is requested without a valid permit.
         VersionError: if the dataset does not match its version.
     """
     if not experiment:
         raise ValueError("every access to the splits must name its experiment")
     stamp_check = version_stamp(config)  # never train or evaluate on unversioned data
-    if TEST_SET in sets:
-        if not evaluar_test:
+    if protected := [name for name in sets if name in PROTECTED_SETS]:
+        if permit is None or permit._token is not _PERMIT_TOKEN:
             raise LockedTestSetError(
-                f"'{experiment}' asked for the test set of '{protocol}' without --evaluar-test"
+                f"'{experiment}' asked for {protected} of '{protocol}': only "
+                f"`qcclass {FINAL_COMMAND} --evaluar-test` may read them"
             )
-        log_test_access(config, experiment, protocol)
+        log_test_access(config, experiment, protocol, protected)
     path = config.rutas.splits / f"{protocol}.csv"
     table = pd.read_csv(path, dtype=str, keep_default_na=False)
     table = table.assign(solo_evaluacion=table["solo_evaluacion"] == "True")

@@ -1,0 +1,123 @@
+{
+  "fecha": "2026-11-24T11:06:17+00:00",
+  "experimento": "medicion_m3pro_cpu",
+  "version_dataset": "dataset-v1",
+  "huella_dataset": "b820a9d626741fc0b670cca06e1ec44fe56e7af08d31fdecc3b7620e557ebae4",
+  "equipo": {
+    "nombre": "m3pro",
+    "sistema": "Darwin",
+    "version_sistema": "27.0.0",
+    "plataforma": "macOS-27.0-arm64-arm-64bit-Mach-O",
+    "wsl": false,
+    "cpu": "Apple M3 Pro",
+    "nucleos_fisicos": 12,
+    "nucleos_logicos": 12,
+    "ram_gb": 18.0,
+    "gpu": null,
+    "vram_gb": null,
+    "python": "3.13.18",
+    "torch": "2.15.0",
+    "torch_geometric": "2.8.1",
+    "cuda": null,
+    "cudnn": null
+  },
+  "dispositivo": "cpu",
+  "opciones": {
+    "dispositivo": "cpu",
+    "presupuesto_nodos": 100000,
+    "epocas": 2,
+    "max_lotes": null,
+    "num_workers": 4,
+    "amp": false,
+    "dim": 64,
+    "capas": 3,
+    "barrido": false,
+    "equipo": "m3pro"
+  },
+  "modelo": {
+    "nombre": "referencia_gine",
+    "parametros": 45146
+  },
+  "datos": {
+    "protocolo": "aleatorio",
+    "conjunto": "train",
+    "grafos": 6366,
+    "nodos_por_epoca": 6855960,
+    "max_nodos_grafo": 19937,
+    "grafos_mayores_que_presupuesto": 0,
+    "desconocidos_excluidos": 0
+  },
+  "mps_fallback": null,
+  "memoria_inicial": null,
+  "peor_caso": {
+    "id": "mapped_qaoa_n36_p2_c0",
+    "n_nodos": 19937,
+    "n_aristas": 24487,
+    "ok": true,
+    "tiempo_s": 0.0283
+  },
+  "epocas": [
+    {
+      "epoca": 1,
+      "tiempo_total_s": 9.551,
+      "tiempo_datos_s": 1.761,
+      "tiempo_computo_s": 7.783,
+      "fraccion_espera_datos": 0.1609,
+      "lotes": 71,
+      "grafos": 6366,
+      "nodos": 6855960,
+      "nodos_s": 738586.8,
+      "grafos_s": 685.8,
+      "perdida_media": 2.8536,
+      "perdida_algoritmo": 1.95467,
+      "perdida_familia": 0.89893,
+      "memoria_gpu_max_mb": null,
+      "ram_max_mb": 2279.9,
+      "ram_max_con_workers_mb": 4300.4,
+      "temperatura_gpu_max": null,
+      "temperatura_gpu_media": null,
+      "lecturas_temperatura": 0
+    },
+    {
+      "epoca": 2,
+      "tiempo_total_s": 7.406,
+      "tiempo_datos_s": 0.097,
+      "tiempo_computo_s": 7.304,
+      "fraccion_espera_datos": 0.013,
+      "lotes": 72,
+      "grafos": 6366,
+      "nodos": 6855960,
+      "nodos_s": 925893.9,
+      "grafos_s": 859.73,
+      "perdida_media": 0.96928,
+      "perdida_algoritmo": 0.69696,
+      "perdida_familia": 0.27232,
+      "memoria_gpu_max_mb": null,
+      "ram_max_mb": 2300.7,
+      "ram_max_con_workers_mb": 4324.2,
+      "temperatura_gpu_max": null,
+      "temperatura_gpu_media": null,
+      "lecturas_temperatura": 0
+    }
+  ],
+  "perdida_baja": true,
+  "proyeccion": {
+    "fuente": "epoca_2",
+    "cache_caliente": true,
+    "nodos_s": 925893.9,
+    "nodos_por_epoca": 6855960,
+    "horas_por_epoca": 0.0021,
+    "entrenamiento_completo_h": {
+      "50": 0.1,
+      "100": 0.21,
+      "200": 0.41
+    },
+    "optuna_h": {
+      "20": 16.5,
+      "50": 41.1
+    },
+    "supuestos": "solo entrenamiento (sin validación); Optuna = intentos x 5 bloques x 100 épocas, cada bloque entrena con 80% de train"
+  },
+  "barrido": null,
+  "duracion_total_s": 37.2
+}

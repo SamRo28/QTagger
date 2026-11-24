@@ -1,19 +1,26 @@
 {
-  "nombre": "dataset-v1",
-  "huella": "b820a9d626741fc0b670cca06e1ec44fe56e7af08d31fdecc3b7620e557ebae4",
+  "nombre": "dataset-v1.1",
+  "huella": "0f5f28fcf1208cda2d99a7f56ab456e28415f9281f1bafcaa1407ff4caf1977b",
   "archivos": {
     "data/metadata.csv": "2eb836bcb2d1995bdb77a8ee8cbd954758b3f3e3499c0c84e6797cf502137acf",
     "data/splits/abierto.csv": "c0ffbe1a4023e43a1920555f934fbd6ed3728b629f5b7e3de78d95153d2f5274",
     "data/splits/aleatorio.csv": "765a3397a9eec5bb31c3898c6be6f070584279ba3bd5e191800249458b15eaad",
+    "data/splits/aleatorio_bloques.csv": "e546dee2e3e5689216753045c123ff6e044026f7011eb2e80476281196b6ba6d",
     "data/splits/oraculos_no_vistos.csv": "cd7069becb42af9079decf393fd95fa3d169bede2e1be340b89b2013468cfa01",
     "data/splits/por_nivel.csv": "244e67f2020296e1cb4d6f65c333d861ba824ab3265d7430f6b797b797dcc43a",
     "data/splits/por_tamano.csv": "c652e585c5baad1a5db3d284241b5414a340fe0d23d3f8ff91a77868e1c118a2",
     "data/graphs/etiquetas.json": "d9eb63b27506cbebd308db1ac2630f0e9a4f46073cdc737d025d596c9305f060"
   },
-  "creado": "2026-11-23T11:37:21+00:00",
-  "git_commit": "e93901ad78c2ce6f093dbde1aeba17cfd2e52eed",
+  "creado": "2026-11-24T16:39:45+00:00",
+  "git_commit": "f88e5380e38a9bb651dc29fef47beff07ef618c0",
   "librerias": {
+    "python": "3.13.18",
     "qiskit": "2.6.2",
-    "mqt.bench": "2.4.0"
+    "mqt.bench": "2.4.0",
+    "torch": "2.15.0",
+    "torch-geometric": "2.8.1",
+    "numpy": "2.5.5",
+    "scikit-learn": "1.9.1",
+    "optuna": "5.1.0"
   }
 }

@@ -22,6 +22,10 @@ dependencies = [
     "torch-geometric",
     "tqdm",
     "psutil",  # RAM measurements (qcclass medir)
+    "mlflow>=3.18,<4",  # tracking server (m1pro) and client
+    "optuna>=5.1,<6",  # the gRPC storage proxy is experimental: stay on one major version
+    "grpcio",  # Optuna gRPC storage proxy (server and clients)
+    "python-dotenv",  # per-machine .env
     "typer",
     "matplotlib",  # notebooks and figures
     "pylatexenc",  # Qiskit "mpl" circuit drawer

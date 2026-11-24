@@ -1,0 +1,7 @@
+# Evaluation settings shared by every experiment (qcclass.evaluacion).
+
+semilla: 42
+bootstrap:
+  remuestreos: 10000   # group bootstrap resamples (whole group_id are resampled)
+  nivel: 0.95          # confidence level of the percentile intervals
+top_k: 3               # top-k accuracy

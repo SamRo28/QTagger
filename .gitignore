@@ -32,3 +32,6 @@ dist/
 
 # Dataset archives for other machines (qcclass medir)
 *.tgz
+
+# Per-machine settings (servers, machine name): see docs/EQUIPOS.md
+.env

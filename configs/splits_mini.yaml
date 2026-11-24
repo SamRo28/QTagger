@@ -6,6 +6,7 @@ aleatorio: {train: 0.70, val: 0.15, test: 0.15}
 por_nivel: {train: [alg, indep], test: [nativegates, mapped]}
 algoritmos_reservados: []
 minimo_por_clase_train: 3
+bloques_cv: 5                # StratifiedGroupKFold blocks over train + val of `aleatorio`
 
 balanceo:
   modo: combinado
