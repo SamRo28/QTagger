@@ -40,6 +40,7 @@ EvaluarTestOption = Annotated[
 DEFAULT_SERVER_TEST_CONFIG = Path("configs/experimentos/prueba_servidores.yaml")
 DEFAULT_BASELINE_CONFIG = Path("configs/experimentos/linea_base.yaml")
 DEFAULT_EVALUATION_CONFIG = Path("configs/evaluacion.yaml")
+DEFAULT_DIAGNOSTICS_CONFIG = Path("configs/experimentos/diagnosticos_linea_base.yaml")
 
 
 def _split_list(value: str | None) -> list[str] | None:
@@ -638,6 +639,70 @@ def _print_measurement(result: dict) -> None:
         )
     if sweep := result["barrido"]:
         typer.echo(f"Largest working budget: {sweep['mayor_presupuesto_ok']}")
+
+
+@app.command("diagnosticos-linea-base")
+def diagnosticos_linea_base(
+    config: ConfigOption = DEFAULT_DATASET_CONFIG,
+    splits: SplitsOption = DEFAULT_SPLITS_CONFIG,
+    experimento: Annotated[
+        Path, typer.Option(help="Diagnostics configuration.")
+    ] = DEFAULT_DIAGNOSTICS_CONFIG,
+    evaluacion: Annotated[
+        Path, typer.Option(help="Evaluation configuration.")
+    ] = DEFAULT_EVALUATION_CONFIG,
+    partes: Annotated[
+        str, typer.Option(help="Parts to run (comma list of barajado, gemelos, confusion, rangos).")
+    ] = "barajado,gemelos,confusion,rangos",
+    sin_mlflow: Annotated[
+        bool, typer.Option("--sin-mlflow", help="Write the files only (log to MLflow later).")
+    ] = False,
+) -> None:
+    """Phase 10 diagnostics of the baseline: shuffled labels, structural twins, confusion,
+    levels and range review (cross-validation only, never the test set)."""
+    from qcclass.config import ConfigError, load_evaluation_config
+    from qcclass.lineabase.configuracion import load_baseline_config
+    from qcclass.lineabase.diagnosticos import (
+        ShuffledLabelAlarm,
+        load_diagnostics_config,
+        log_diagnostics,
+        run_diagnostics,
+    )
+    from qcclass.lineabase.ejecutar import build_context
+    from qcclass.seguimiento.entorno import ServerConnectionError, load_env
+    from qcclass.versionado import VersionError
+
+    dataset = _load_dataset_config(config)
+    split_config = _load_splits_config(splits, dataset)
+    chosen = tuple(_split_list(partes) or ())
+    valid = ("barajado", "gemelos", "confusion", "rangos")
+    if bad := [p for p in chosen if p not in valid]:
+        typer.echo(f"Error: unknown parts {bad} (valid: {list(valid)})", err=True)
+        raise typer.Exit(code=1)
+    try:
+        diagnostics = load_diagnostics_config(experimento)
+        baseline = load_baseline_config(diagnostics.baseline_path)
+        evaluation = load_evaluation_config(evaluacion)
+        load_env(dataset.rutas.raiz)
+        ctx = build_context(
+            dataset,
+            split_config,
+            baseline,
+            evaluation,
+            storage=None,
+            experiment=f"{baseline.name}.diagnosticos",
+        )
+        try:
+            result, path = run_diagnostics(ctx, diagnostics, parts=chosen)
+        except ShuffledLabelAlarm as alarm:
+            typer.echo(f"ALARM: {alarm}", err=True)
+            raise typer.Exit(code=2) from alarm
+        if not sin_mlflow:
+            log_diagnostics(ctx, diagnostics, result, path)
+    except (ConfigError, ServerConnectionError, VersionError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"Diagnostics: {path}")
 
 
 @app.command("linea-base")

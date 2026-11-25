@@ -1,0 +1,28 @@
+# Phase 10 diagnostics of the baseline (qcclass diagnosticos-linea-base). Cross-validation
+# only (train + val of `aleatorio`); never the test set. Output: results/baseline/diagnosticos.md
+# and .json, plus an MLflow run in the baseline experiment.
+
+linea_base: configs/experimentos/linea_base.yaml
+semilla: 42
+
+# 1. Shuffled labels: the WL finalist (algorithm target, its best configuration) refitted on
+#    every block with the algorithm labels permuted among the training groups of the block.
+barajado:
+  semillas: [1, 2, 3]
+  umbral_f1_macro: 0.10              # above this the run stops: something leaks
+
+# 2. Structural twins: a held-out circuit has a twin when a circuit of the training part of
+#    its block has the same WL fingerprint (multiset of WL labels at iteration h, same
+#    initial labels as the WL rung).
+gemelos:
+  h: [2, 3]
+
+# 3. Confusion of the WL finalist and breakdown by level of the three finalists.
+confusion:
+  pares: 5
+
+# 4. Range review: best value of a numeric hyperparameter in the outer fraction of its range.
+rangos:
+  extremo: 0.10
+  limites_naturales:                 # bounds that cannot be widened
+    min_samples_leaf: 1

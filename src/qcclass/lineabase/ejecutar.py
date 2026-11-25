@@ -86,6 +86,34 @@ def _importances(ctx: StudyContext, best: pd.DataFrame, output: Path) -> dict[st
     return importances
 
 
+def build_context(
+    config: DatasetConfig,
+    splits: SplitsConfig,
+    baseline: BaselineConfig,
+    evaluation: EvaluationConfig,
+    *,
+    storage: optuna.storages.BaseStorage | None,
+    experiment: str | None = None,
+) -> StudyContext:
+    """Pool, blocks, features and provenance shared by the studies (and the diagnostics)."""
+    provenance = start_provenance(config, experiment or baseline.name, device="cpu")
+    pool = load_pool(config, splits, experiment or baseline.name)
+    output = output_dir(config)
+    return StudyContext(
+        config=config,
+        splits=splits,
+        baseline=baseline,
+        evaluation=evaluation,
+        pool=pool,
+        folds=[fold_training(pool, block, splits) for block in range(pool.n_blocks)],
+        features=FeatureStore(config, pool, baseline, output / CACHE_DIR),
+        storage=storage,
+        provenance=provenance,
+        metadata=read_table(config.rutas.metadata, METADATA_COLUMNS),
+        output=output,
+    )
+
+
 def run_baseline(
     config: DatasetConfig,
     splits: SplitsConfig,
@@ -100,22 +128,8 @@ def run_baseline(
     summary: bool = True,
 ) -> BaselineRun:
     """Run the selected studies and write the summary (see the module docstring)."""
-    provenance = start_provenance(config, baseline.name, device="cpu")
-    pool = load_pool(config, splits, baseline.name)
-    output = output_dir(config)
-    ctx = StudyContext(
-        config=config,
-        splits=splits,
-        baseline=baseline,
-        evaluation=evaluation,
-        pool=pool,
-        folds=[fold_training(pool, block, splits) for block in range(pool.n_blocks)],
-        features=FeatureStore(config, pool, baseline, output / CACHE_DIR),
-        storage=storage,
-        provenance=provenance,
-        metadata=read_table(config.rutas.metadata, METADATA_COLUMNS),
-        output=output,
-    )
+    ctx = build_context(config, splits, baseline, evaluation, storage=storage)
+    provenance, output = ctx.provenance, ctx.output
     results = []
     for target in _selected(baseline.targets, targets):
         for rung in _selected(list(baseline.rungs), rungs):
@@ -146,4 +160,4 @@ def run_baseline(
     return BaselineRun(results, table, best, path)
 
 
-__all__ = ["SUMMARY_FILE", "BaselineRun", "output_dir", "run_baseline"]
+__all__ = ["SUMMARY_FILE", "BaselineRun", "build_context", "output_dir", "run_baseline"]

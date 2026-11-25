@@ -31,8 +31,9 @@ SUMMARY_TABLE = "resumen.csv"
 TARGET_FOR_FINALISTS = "algoritmo"
 
 
-def collect_results(output: Path) -> pd.DataFrame:
-    """One row per finished study (``estudios/*/resultado.json``)."""
+def collect_results(output: Path, *, all_revisions: bool = False) -> pd.DataFrame:
+    """One row per finished study (``estudios/*/resultado.json``): only the highest revision
+    of every rung x classifier x target unless ``all_revisions``."""
     rows = []
     for path in sorted((output / STUDIES_DIR).glob(f"*/{RESULT_FILE}")):
         result = json.loads(path.read_text(encoding="utf-8"))
@@ -42,6 +43,7 @@ def collect_results(output: Path) -> pd.DataFrame:
                 "peldano": result["peldano"],
                 "clasificador": result["clasificador"],
                 "objetivo": result["objetivo"],
+                "revision": int(result.get("revision", 1)),
                 "cv_f1_macro": result["cv_f1_macro"],
                 "cv_f1_macro_desviacion": result["cv_f1_macro_desviacion"],
                 **{f"oof_{m}": v["valor"] for m, v in oof.items()},
@@ -53,7 +55,11 @@ def collect_results(output: Path) -> pd.DataFrame:
                 "estudio": result["estudio"],
             }
         )
-    return pd.DataFrame(rows)
+    table = pd.DataFrame(rows)
+    if all_revisions or table.empty:
+        return table
+    latest = table.groupby(["peldano", "clasificador", "objetivo"])["revision"].transform("max")
+    return table[table["revision"] == latest].reset_index(drop=True)
 
 
 def finalists(table: pd.DataFrame) -> pd.DataFrame:
@@ -193,8 +199,9 @@ def write_summary(
                     "oof_exactitud_top3", pd.Series([None] * len(part), index=part.index)
                 ).map(_pct),
                 "MCC": part["oof_mcc"].map(_pct),
+                "Rev.": part["revision"],
                 "Intentos": part["intentos"].map(
-                    lambda d: ", ".join(f"{k.lower()} {v}" for k, v in d.items())
+                    lambda d: ", ".join(f"{k.lower()} {v}" for k, v in sorted(d.items()))
                 ),
                 "Búsqueda (min)": (part["segundos_busqueda"] / 60).round(1),
             }
@@ -215,7 +222,21 @@ def write_summary(
         )[["caracteristica", "importancia", "desviacion_bloques"]]
         top.columns = ["Característica", "Caída de F1 macro (puntos)", "Desv. entre bloques"]
         lines += _markdown(top)
-    total = table["segundos_busqueda"].sum() / 3600
+    every = collect_results(output, all_revisions=True)
+    replaced = every[~every["estudio"].isin(table["estudio"])]
+    if len(replaced):
+        lines += ["", "## Estudios sustituidos por una revisión (rango ampliado)", ""]
+        for row in replaced.sort_values("estudio").itertuples(index=False):
+            new = table[
+                (table["peldano"] == row.peldano)
+                & (table["clasificador"] == row.clasificador)
+                & (table["objetivo"] == row.objetivo)
+            ].iloc[0]
+            lines.append(
+                f"- `{row.estudio}`: F1 macro CV {_pct(row.cv_f1_macro)} % → "
+                f"`{new.estudio}` {_pct(new.cv_f1_macro)} %"
+            )
+    total = every["segundos_busqueda"].sum() / 3600
     lines += ["", f"Tiempo total de búsqueda: {total:.1f} h.", ""]
     path = output / SUMMARY_FILE
     write_text_atomic("\n".join(lines), path)

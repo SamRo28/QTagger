@@ -100,7 +100,7 @@ class StudyContext:
     pool: CrossValidationPool
     folds: list[FoldTraining]
     features: FeatureStore
-    storage: optuna.storages.BaseStorage
+    storage: optuna.storages.BaseStorage | None
     provenance: Provenance
     metadata: pd.DataFrame
     output: Path
@@ -138,7 +138,7 @@ def fit_block(
 
 
 def _objective(ctx: StudyContext, rung: str, classifier: str, target: str, name: str) -> Any:
-    space = ctx.baseline.space(rung, classifier)
+    space = ctx.baseline.space(rung, classifier, target)
     n_classes = len(ctx.pool.class_names(target))
     y = ctx.pool.rows[f"y_{target}"].to_numpy()
 
@@ -243,7 +243,7 @@ def run_study(
     started = time.perf_counter()
     study = _run_search(ctx, rung, classifier, target, name)
     best = study.best_trial
-    space = ctx.baseline.space(rung, classifier)
+    space = ctx.baseline.space(rung, classifier, target)
     params = fixed_params(space, best.params)
     predictions = out_of_fold(ctx, rung, classifier, target, name, params)
     enriched = attach_metadata(predictions, ctx.metadata)
@@ -260,6 +260,7 @@ def run_study(
         "peldano": rung,
         "clasificador": classifier,
         "objetivo": target,
+        "revision": ctx.baseline.revision(rung, classifier, target),
         "cv_f1_macro": float(best.value),
         "cv_f1_macro_desviacion": float(np.std(block_scores)) if block_scores else None,
         "f1_bloques": block_scores,

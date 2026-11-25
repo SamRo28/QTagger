@@ -209,3 +209,89 @@ def test_stale_trials_of_this_machine_are_failed() -> None:
     assert fail_stale_trials(study, storage, "m3pro") == [mine.number]
     states = {t.number: t.state.name for t in study.get_trials()}
     assert states == {0: "FAIL", 1: "RUNNING", 2: "COMPLETE"}
+
+
+# --------------------------------------------------------------------------------------------
+# Range review: revisions and diagnostics helpers
+# --------------------------------------------------------------------------------------------
+
+
+def test_revisions_rename_and_widen_only_their_study(repo_root: Path) -> None:
+    config = load_baseline_config(repo_root / "configs" / "experimentos" / "linea_base.yaml")
+    assert config.revision("wl", "random_forest", "familia") == 2
+    assert config.study_name("wl", "random_forest", "familia").endswith("familia.r2")
+    assert config.space("wl", "random_forest", "familia")["h"]["max"] == 4
+    assert config.space("wl", "random_forest", "algoritmo")["h"]["max"] == 3
+    assert config.space("wl", "random_forest")["h"]["max"] == 3  # original space
+    assert config.study_name("e7", "random_forest", "algoritmo").endswith("algoritmo")
+
+
+def test_collect_results_keeps_the_latest_revision(tmp_path: Path) -> None:
+    import json
+
+    from qcclass.lineabase.resumen import collect_results
+
+    for name, revision, f1 in (("s", 1, 0.5), ("s.r2", 2, 0.6), ("t", 1, 0.7)):
+        folder = tmp_path / "estudios" / name
+        folder.mkdir(parents=True)
+        metric = {"valor": f1, "ic_inf": f1, "ic_sup": f1}
+        result = {
+            "peldano": "e7",
+            "clasificador": "random_forest" if name != "t" else "x",
+            "objetivo": "algoritmo",
+            "cv_f1_macro": f1,
+            "cv_f1_macro_desviacion": 0.0,
+            "oof": {"f1_macro": metric},
+            "intentos": {},
+            "segundos_busqueda": 1.0,
+            "parametros": {},
+            "estudio": name,
+        }
+        if revision > 1:
+            result["revision"] = revision
+        (folder / "resultado.json").write_text(json.dumps(result))
+    assert sorted(collect_results(tmp_path)["estudio"]) == ["s.r2", "t"]
+    assert len(collect_results(tmp_path, all_revisions=True)) == 3
+
+
+def test_edge_values_and_natural_bounds(repo_root: Path) -> None:
+    from qcclass.lineabase.diagnosticos import edge_values
+
+    config = load_baseline_config(repo_root / "configs" / "experimentos" / "linea_base.yaml")
+    study = {
+        "peldano": "wl",
+        "clasificador": "random_forest",
+        "objetivo": "algoritmo",
+        "parametros": {
+            "h": 2,
+            "min_circuitos": 10,
+            "n_estimators": 300,
+            "min_samples_leaf": 1,
+            "max_depth": None,
+            "max_features": "sqrt",
+        },
+    }
+    flagged = {e["parametro"]: e for e in edge_values(config, study, 0.1, {"min_samples_leaf": 1})}
+    assert set(flagged) == {"min_circuitos", "min_samples_leaf"}
+    assert flagged["min_samples_leaf"]["limite_natural"]
+    assert flagged["min_circuitos"]["lado"] == "superior"
+    lr = {
+        "peldano": "f3",
+        "clasificador": "regresion_logistica",
+        "objetivo": "algoritmo",
+        "parametros": {"C": 900.0, "transformacion": "log1p", "max_iter": 2000},
+    }
+    assert [e["parametro"] for e in edge_values(config, lr, 0.1, {})] == ["C"]
+
+
+def test_per_class_intervals_match_the_point_f1() -> None:
+    from qcclass.lineabase.diagnosticos import per_class_intervals
+
+    y_true = np.array([0, 0, 1, 1, 2, 2])
+    y_pred = np.array([0, 1, 1, 1, 2, 0])
+    groups = np.array(["a", "a", "b", "c", "d", "e"])
+    result = per_class_intervals(y_true, y_pred, groups, 4, resamples=200, level=0.95, seed=0)
+    assert [r["soporte"] for r in result] == [2, 2, 2, 0]
+    assert result[1]["f1"] == pytest.approx(0.8)  # 2*2 / (4 + 1)
+    assert result[0]["ic_inf"] <= result[0]["f1"] <= result[0]["ic_sup"]
+    assert math.isnan(result[3]["f1"])

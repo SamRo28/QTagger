@@ -21,7 +21,7 @@ peldanos:
     columnas: null
   wl:                                # Weisfeiler-Lehman on the F4 graphs
     fuente: wl
-    h_max: 3
+    h_max: 4                         # 3 in the first run; 4 only for the r2 review (h <= 3 unchanged)
     bits_hash: 20                    # 2^20 buckets: 2^14 saturates (>400k labels at h=3)
     divisiones_pi: 16                # rz angles on a pi/16 grid, plus "other"
     tolerancia_angulo: 1.0e-4        # radians
@@ -60,3 +60,62 @@ ajustes_por_peldano:
 importancia:
   repeticiones: 5
   max_columnas_wl: 100               # WL: only the most frequent columns are permuted
+
+# Range review (phase 10 diagnostics): studies whose best value of a numeric hyperparameter
+# fell in the outer 10 % of its range (or at the end of an ordered numeric list) are repeated
+# with that side widened, as a new study ``<name>.r2`` (the original is kept). Natural bounds
+# are not widened (random forest min_samples_leaf = 1). The summary uses the latest revision.
+revisiones:
+  e7.hist_gradient_boosting.algoritmo:     # min_samples_leaf 7, max_leaf_nodes 62
+    revision: 2
+    espacio:
+      min_samples_leaf: {tipo: int, min: 1, max: 50}
+      max_leaf_nodes: {tipo: int, min: 15, max: 127}
+  e7.regresion_logistica.algoritmo:        # C 332
+    revision: 2
+    espacio:
+      C: {tipo: float, min: 1.0e-3, max: 1.0e+5, log: true}
+  f3.regresion_logistica.algoritmo:        # C 904
+    revision: 2
+    espacio:
+      C: {tipo: float, min: 1.0e-3, max: 1.0e+5, log: true}
+  f3.regresion_logistica.familia:          # C 641
+    revision: 2
+    espacio:
+      C: {tipo: float, min: 1.0e-3, max: 1.0e+5, log: true}
+  f3.hist_gradient_boosting.familia:       # lr 0.28, l2 3e-6, min_samples_leaf 47, max_iter 300
+    revision: 2
+    espacio:
+      learning_rate: {tipo: float, min: 0.02, max: 0.6, log: true}
+      l2_regularization: {tipo: float, min: 1.0e-9, max: 1.0, log: true}
+      min_samples_leaf: {tipo: int, min: 5, max: 150}
+      max_iter: {tipo: int, min: 50, max: 800, paso: 50}
+  wl.hist_gradient_boosting.algoritmo:     # columnas_wl 1024 (finalist)
+    revision: 2
+    espacio:
+      columnas_wl: {tipo: categorica, valores: [256, 512, 1024, 2048, 4096]}
+  wl.hist_gradient_boosting.familia:       # lr 0.28, min_circuitos 2, columnas_wl 1024,
+    revision: 2                            # max_leaf_nodes 19, max_iter 50
+    espacio:
+      learning_rate: {tipo: float, min: 0.02, max: 0.6, log: true}
+      min_circuitos: {tipo: categorica, valores: [1, 2, 5, 10]}
+      columnas_wl: {tipo: categorica, valores: [256, 512, 1024, 2048, 4096]}
+      max_leaf_nodes: {tipo: int, min: 4, max: 63}
+      max_iter: {tipo: int, min: 10, max: 300, paso: 10}
+  wl.random_forest.algoritmo:              # min_circuitos 10
+    revision: 2
+    espacio:
+      min_circuitos: {tipo: categorica, valores: [2, 5, 10, 20, 50]}
+  wl.random_forest.familia:                # h 3, min_circuitos 10
+    revision: 2
+    espacio:
+      h: {tipo: int, min: 1, max: 4}
+      min_circuitos: {tipo: categorica, valores: [2, 5, 10, 20, 50]}
+  wl.regresion_logistica.algoritmo:        # min_circuitos 10
+    revision: 2
+    espacio:
+      min_circuitos: {tipo: categorica, valores: [2, 5, 10, 20, 50]}
+  wl.regresion_logistica.familia:          # C 0.0034
+    revision: 2
+    espacio:
+      C: {tipo: float, min: 1.0e-5, max: 1.0e+3, log: true}

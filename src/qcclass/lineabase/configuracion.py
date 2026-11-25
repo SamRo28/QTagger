@@ -3,6 +3,11 @@
 A search space maps hyperparameter names to specifications: ``{tipo: float, min, max, log}``,
 ``{tipo: int, min, max, paso}``, ``{tipo: categorica, valores}`` or ``{tipo: fijo, valor}``.
 :func:`suggest` draws a configuration from a space with an Optuna trial.
+
+``revisiones`` repeats single studies with a changed space (the phase 10 range review): the
+key is ``<rung>.<classifier>.<target>``, ``revision`` (>= 2) is appended to the study name
+(``.r2``) and ``espacio`` replaces or adds hyperparameters on top of the study space. The
+original study is kept; the summary uses the highest revision of every study.
 """
 
 from dataclasses import dataclass
@@ -55,21 +60,31 @@ class BaselineConfig:
     rungs: dict[str, Rung]
     spaces: dict[str, dict[str, dict]]
     rung_overrides: dict[str, dict[str, dict[str, dict]]]
+    revisions: dict[str, tuple[int, dict[str, dict]]]
     importance_repeats: int
     importance_wl_columns: int
     raw: dict[str, Any]
 
-    def space(self, rung: str, classifier: str) -> dict[str, dict]:
-        """Search space of a study: rung parameters, classifier space and rung overrides."""
+    def revision(self, rung: str, classifier: str, target: str) -> int:
+        """Revision of a study (1 unless listed in ``revisiones``)."""
+        return self.revisions.get(f"{rung}.{classifier}.{target}", (1, {}))[0]
+
+    def space(self, rung: str, classifier: str, target: str | None = None) -> dict[str, dict]:
+        """Search space of a study: rung parameters, classifier space, rung overrides and the
+        changes of the study revision (when ``target`` is given)."""
+        revised = self.revisions.get(f"{rung}.{classifier}.{target}", (1, {}))[1]
         return {
             **self.rungs[rung].space,
             **self.spaces[classifier],
             **self.rung_overrides.get(rung, {}).get(classifier, {}),
+            **revised,
         }
 
     def study_name(self, rung: str, classifier: str, target: str) -> str:
-        """``<nombre>.<rung>.<classifier>.<target>``."""
-        return f"{self.name}.{rung}.{classifier}.{target}"
+        """``<nombre>.<rung>.<classifier>.<target>``, plus ``.r<n>`` from revision 2."""
+        revision = self.revision(rung, classifier, target)
+        suffix = f".r{revision}" if revision > 1 else ""
+        return f"{self.name}.{rung}.{classifier}.{target}{suffix}"
 
 
 def _check_space(space: dict, ctx: str) -> dict[str, dict]:
@@ -131,6 +146,17 @@ def load_baseline_config(path: Path | str) -> BaselineConfig:
             raise ConfigError(f"ajustes_por_peldano: unknown rung {rung!r}")
         for classifier, space in by_classifier.items():
             _check_space(space, f"ajustes_por_peldano[{rung}][{classifier}]")
+    revisions = {}
+    for key, entry in (data.get("revisiones") or {}).items():
+        parts = key.split(".")
+        if len(parts) != 3 or parts[0] not in rungs or parts[1] not in spaces:
+            raise ConfigError(f"revisiones[{key}]: expected <rung>.<classifier>.<target>")
+        if parts[2] not in targets:
+            raise ConfigError(f"revisiones[{key}]: unknown target {parts[2]!r}")
+        revision = int(entry.get("revision", 0))
+        if revision < 2:
+            raise ConfigError(f"revisiones[{key}][revision]: must be >= 2")
+        revisions[key] = (revision, _check_space(entry.get("espacio") or {}, f"revisiones[{key}]"))
     return BaselineConfig(
         name=data["nombre"],
         mlflow_experiment=data["experimento_mlflow"],
@@ -141,6 +167,7 @@ def load_baseline_config(path: Path | str) -> BaselineConfig:
         rungs=rungs,
         spaces=spaces,
         rung_overrides=overrides,
+        revisions=revisions,
         importance_repeats=int(data["importancia"]["repeticiones"]),
         importance_wl_columns=int(data["importancia"]["max_columnas_wl"]),
         raw=data,
