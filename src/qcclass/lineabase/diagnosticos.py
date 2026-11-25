@@ -68,6 +68,7 @@ class DiagnosticsConfig:
     confused_pairs: int
     range_fraction: float
     natural_bounds: dict[str, float]
+    min_support: int
     raw: dict[str, Any]
 
 
@@ -90,6 +91,7 @@ def load_diagnostics_config(path: Path | str) -> DiagnosticsConfig:
             natural_bounds={
                 k: float(v) for k, v in (data["rangos"].get("limites_naturales") or {}).items()
             },
+            min_support=int(data.get("soporte_minimo", 20)),
             raw=data,
         )
     except (KeyError, TypeError, ValueError) as exc:
@@ -160,9 +162,20 @@ def per_class_intervals(
 
 
 def _macro(
-    ctx: StudyContext, y_true: np.ndarray, y_pred: np.ndarray, groups: np.ndarray, key: str
+    ctx: StudyContext,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    groups: np.ndarray,
+    key: str,
+    classes: list[int] | None = None,
 ) -> dict[str, float]:
+    """Macro F1 with a group bootstrap interval; with ``classes``, only rows of those true
+    classes (a class with a handful of rows otherwise swings the macro average as it enters
+    and leaves the resamples)."""
     n_classes = len(ctx.pool.class_names(TARGET))
+    if classes is not None:
+        keep = np.isin(y_true, classes)
+        y_true, y_pred, groups = y_true[keep], y_pred[keep], groups[keep]
     if len(y_true) == 0:
         return {"n": 0, "valor": np.nan, "ic_inf": np.nan, "ic_sup": np.nan}
     counts = group_counts(y_true, y_pred, groups, n_classes)
@@ -173,6 +186,13 @@ def _macro(
         seed=derive_seed(ctx.evaluation.semilla, "diagnosticos", key),
     )["f1_macro"]
     return {"n": int(len(y_true)), "grupos": int(len(counts.groups)), **interval}
+
+
+def _common_classes(y_true: np.ndarray, masks: list[np.ndarray], minimum: int) -> list[int]:
+    """Classes with at least ``minimum`` rows in every subset."""
+    size = int(y_true.max()) + 1
+    counts = [np.bincount(y_true[m], minlength=size) for m in masks]
+    return [c for c in range(size) if all(n[c] >= minimum for n in counts)]
 
 
 # --------------------------------------------------------------------------------------------
@@ -306,7 +326,9 @@ def _predictions(ctx: StudyContext, study: str) -> pd.DataFrame:
     return head_rows(pd.read_parquet(path), TARGET)
 
 
-def twins(ctx: StudyContext, best: pd.DataFrame, hs: tuple[int, ...]) -> dict[str, Any]:
+def twins(
+    ctx: StudyContext, best: pd.DataFrame, hs: tuple[int, ...], min_support: int
+) -> dict[str, Any]:
     """Twin shares per class and finalist scores with / without a twin (see the module)."""
     fingerprints = wl_fingerprints(ctx, hs)
     names = ctx.pool.class_names(TARGET)
@@ -341,11 +363,17 @@ def twins(ctx: StudyContext, best: pd.DataFrame, hs: tuple[int, ...]) -> dict[st
                 raise ValueError(f"{row.estudio}: predictions without twin flags")
             y_true, y_pred, _, groups = head_arrays(table, TARGET, n_classes)
             mask = table["gemelo"].to_numpy(bool)
+            common = _common_classes(y_true, [mask, ~mask], min_support)
+            entry["clases_comunes"] = [names[c] for c in common]
+            entry["soporte_minimo"] = min_support
             parts = {}
             for label, part in (("con_gemelo", mask), ("sin_gemelo", ~mask)):
                 key = f"{row.estudio}.h{h}.{label}"
                 parts[label] = {
                     "macro": _macro(ctx, y_true[part], y_pred[part], groups[part], key),
+                    "macro_comun": _macro(
+                        ctx, y_true[part], y_pred[part], groups[part], f"{key}.comun", common
+                    ),
                     "por_clase": per_class_intervals(
                         y_true[part],
                         y_pred[part],
@@ -398,16 +426,31 @@ def confused_pairs(ctx: StudyContext, study: str, k: int) -> dict[str, Any]:
     }
 
 
-def by_level(ctx: StudyContext, best: pd.DataFrame) -> dict[str, Any]:
-    """Macro F1 of every finalist per level, with group bootstrap intervals."""
+def by_level(ctx: StudyContext, best: pd.DataFrame, min_support: int) -> dict[str, Any]:
+    """Macro F1 of every finalist per level, with group bootstrap intervals: over every class
+    and over the classes with ``min_support`` rows at every level (``comun``)."""
     n_classes = len(ctx.pool.class_names(TARGET))
     result = {}
     for row in best.itertuples(index=False):
         table = attach_metadata(_predictions(ctx, row.estudio), ctx.metadata)
         y_true, y_pred, _, groups = head_arrays(table, TARGET, n_classes)
         levels = table["nivel"].astype(str).to_numpy()
+        common = _common_classes(y_true, [levels == lv for lv in LEVELS], min_support)
         result[row.peldano] = {
             "estudio": row.estudio,
+            "soporte_minimo": min_support,
+            "clases_comunes": [ctx.pool.class_names(TARGET)[c] for c in common],
+            "comun": {
+                level: _macro(
+                    ctx,
+                    y_true[levels == level],
+                    y_pred[levels == level],
+                    groups[levels == level],
+                    f"{row.estudio}.nivel.{level}.comun",
+                    common,
+                )
+                for level in LEVELS
+            },
             **{
                 level: _macro(
                     ctx,
@@ -523,6 +566,10 @@ def _ci(entry: dict) -> str:
     return f"{_pct(entry['valor'])} [{_pct(entry['ic_inf'])}, {_pct(entry['ic_sup'])}]"
 
 
+def _ci_n(entry: dict) -> str:
+    return f"{_ci(entry)} (n {entry['n']})"
+
+
 def _table(header: list[str], rows: list[list[Any]]) -> list[str]:
     return [
         "| " + " | ".join(header) + " |",
@@ -595,6 +642,8 @@ def report_markdown(result: dict[str, Any], header: dict[str, str]) -> str:
                         "F1 macro con gemelo",
                         "Sin gemelo: n",
                         "F1 macro sin gemelo",
+                        "Con gemelo, clases comunes",
+                        "Sin gemelo, clases comunes",
                     ],
                     [
                         [
@@ -603,10 +652,18 @@ def report_markdown(result: dict[str, Any], header: dict[str, str]) -> str:
                             _ci(f["con_gemelo"]["macro"]),
                             f["sin_gemelo"]["macro"]["n"],
                             _ci(f["sin_gemelo"]["macro"]),
+                            _ci_n(f["con_gemelo"]["macro_comun"]),
+                            _ci_n(f["sin_gemelo"]["macro_comun"]),
                         ]
                         for p, f in entry["finalistas"].items()
                     ],
                 ),
+                "",
+                f"Clases comunes (al menos {entry['soporte_minimo']} circuitos con gemelo y "
+                "otros tantos sin gemelo): " + ", ".join(entry["clases_comunes"]) + ". La F1 "
+                "macro de todas las clases oscila cuando una clase con muy pocos circuitos entra "
+                "o sale del remuestreo; por eso su intervalo puede quedar casi por encima del "
+                "valor.",
                 "",
             ]
             finals = entry["finalistas"]
@@ -689,6 +746,15 @@ def report_markdown(result: dict[str, Any], header: dict[str, str]) -> str:
                 ],
             ),
             "",
+            "Solo clases con al menos "
+            f"{next(iter(levels.values()))['soporte_minimo']} circuitos en los cuatro niveles "
+            f"({', '.join(next(iter(levels.values()))['clases_comunes'])}):",
+            "",
+            *_table(
+                ["Peldaño", *LEVELS],
+                [[p, *[_ci_n(e["comun"][lv]) for lv in LEVELS]] for p, e in levels.items()],
+            ),
+            "",
         ]
     ranges = result.get("rangos")
     if ranges:
@@ -745,10 +811,10 @@ def run_diagnostics(
         study = json.loads((ctx.output / STUDIES_DIR / wl_study / RESULT_FILE).read_text("utf-8"))
         result["barajado"] = shuffled_labels(ctx, study, config.shuffle_seeds)
     if "gemelos" in parts:
-        result["gemelos"] = twins(ctx, best, config.twin_h)
+        result["gemelos"] = twins(ctx, best, config.twin_h, config.min_support)
     if "confusion" in parts:
         result["confusion"] = confused_pairs(ctx, wl_study, config.confused_pairs)
-        result["niveles"] = by_level(ctx, best)
+        result["niveles"] = by_level(ctx, best, config.min_support)
     if "rangos" in parts:
         result["rangos"] = range_review(ctx, config.range_fraction, config.natural_bounds)
     result["procedencia"] = {

@@ -295,3 +295,12 @@ def test_per_class_intervals_match_the_point_f1() -> None:
     assert result[1]["f1"] == pytest.approx(0.8)  # 2*2 / (4 + 1)
     assert result[0]["ic_inf"] <= result[0]["f1"] <= result[0]["ic_sup"]
     assert math.isnan(result[3]["f1"])
+
+
+def test_common_classes_need_support_in_every_subset() -> None:
+    from qcclass.lineabase.diagnosticos import _common_classes
+
+    y = np.array([0, 0, 0, 1, 1, 2, 2, 2, 2])
+    first = np.array([1, 1, 0, 1, 0, 1, 1, 0, 0], dtype=bool)
+    assert _common_classes(y, [first, ~first], 1) == [0, 1, 2]
+    assert _common_classes(y, [first, ~first], 2) == [2]

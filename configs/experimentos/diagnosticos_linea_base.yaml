@@ -26,3 +26,7 @@ rangos:
   extremo: 0.10
   limites_naturales:                 # bounds that cannot be widened
     min_samples_leaf: 1
+
+# Macro F1 over common classes only: classes with at least this many circuits in every
+# compared subset (with / without twin; every level).
+soporte_minimo: 20
