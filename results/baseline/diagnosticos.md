@@ -1,6 +1,6 @@
 # Diagnósticos de la línea base (fase 10)
 
-Dataset dataset-v1.1 (0f5f28fcf120), commit `75be38c`, equipo `m3pro`. Solo validación cruzada de 5 bloques sobre train + val de `aleatorio`; objetivo algoritmo. Intervalos del 95 % por bootstrap de grupos. **Sin test.**
+Dataset dataset-v1.1 (0f5f28fcf120), commit `1952375`, equipo `m3pro`. Solo validación cruzada de 5 bloques sobre train + val de `aleatorio`; objetivo algoritmo. Intervalos del 95 % por bootstrap de grupos. **Sin test.**
 
 ## 1. Etiquetas barajadas
 
@@ -51,6 +51,17 @@ F1 por clase (h2; «con» / «sin» gemelo, %):
 | vqe_two_local | 627 | 18.5 | 0.5 | 97.9 [96, 100] | 82.6 [79, 86] | 97.9 [96, 100] | 96.7 [95, 98] | 97.9 [96, 100] | 98.1 [96, 99] |
 | wstate | 165 | 0.0 | 0.0 | — | 52.5 [41, 62] | — | 91.6 [86, 96] | — | 98.2 [96, 100] |
 
+Gemelos de otra clase (h2): circuitos de una clase con algún gemelo WL de otra clase en la parte de entrenamiento de su bloque.
+
+| Clase | Clase del gemelo | Circuitos | % de la clase |
+|---|---|---|---|
+| bv | dj | 11 de 665 | 1.65 |
+| vqe_su2 | bmw_quark_cardinality | 6 de 1048 | 0.57 |
+| dj | bv | 5 de 675 | 0.74 |
+| vqe_real_amp | vqe_two_local | 3 de 655 | 0.46 |
+| vqe_two_local | vqe_real_amp | 3 de 627 | 0.48 |
+| bmw_quark_cardinality | vqe_su2 | 2 de 264 | 0.76 |
+
 ### h3: 22.3 % con gemelo; 0.4 % con algún gemelo de otra clase
 
 | Peldaño | Con gemelo: n | F1 macro con gemelo | Sin gemelo: n | F1 macro sin gemelo | Con gemelo, clases comunes | Sin gemelo, clases comunes |
@@ -85,6 +96,17 @@ F1 por clase (h3; «con» / «sin» gemelo, %):
 | vqe_su2 | 1048 | 37.2 | 0.6 | 83.9 [80, 87] | 64.0 [59, 69] | 86.8 [83, 90] | 73.9 [70, 77] | 99.0 [98, 100] | 100.0 [100, 100] |
 | vqe_two_local | 627 | 18.5 | 0.5 | 97.9 [96, 100] | 82.6 [79, 86] | 97.9 [96, 100] | 96.7 [95, 98] | 97.9 [96, 100] | 98.1 [96, 99] |
 | wstate | 165 | 0.0 | 0.0 | — | 52.5 [41, 62] | — | 91.6 [86, 96] | — | 98.2 [96, 100] |
+
+Gemelos de otra clase (h3): circuitos de una clase con algún gemelo WL de otra clase en la parte de entrenamiento de su bloque.
+
+| Clase | Clase del gemelo | Circuitos | % de la clase |
+|---|---|---|---|
+| bv | dj | 11 de 665 | 1.65 |
+| vqe_su2 | bmw_quark_cardinality | 6 de 1048 | 0.57 |
+| dj | bv | 5 de 675 | 0.74 |
+| vqe_real_amp | vqe_two_local | 3 de 655 | 0.46 |
+| vqe_two_local | vqe_real_amp | 3 de 627 | 0.48 |
+| bmw_quark_cardinality | vqe_su2 | 2 de 264 | 0.76 |
 
 ## 3. Confusión de `linea_base_v1.wl.hist_gradient_boosting.algoritmo.r2` (122 errores fuera de bloque)
 

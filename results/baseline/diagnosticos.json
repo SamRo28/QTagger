@@ -56,7 +56,7 @@
   "procedencia": {
     "version_dataset": "dataset-v1.1",
     "huella_dataset": "0f5f28fcf1208cda2d99a7f56ab456e28415f9281f1bafcaa1407ff4caf1977b",
-    "git_commit": "75be38ce6a054d70af7e9288122408484925a4ab",
+    "git_commit": "1952375c41b8e66918a9cf811d072e9d043dd0a6",
     "equipo": "m3pro"
   },
   "gemelos": {
@@ -183,6 +183,50 @@
           "n": 165,
           "con_gemelo": 0.0,
           "gemelo_otra_clase": 0.0
+        }
+      ],
+      "cruzados": [
+        {
+          "clase": "bv",
+          "clase_gemelo": "dj",
+          "n_clase": 665,
+          "circuitos": 11,
+          "porcentaje": 0.016541353383458645
+        },
+        {
+          "clase": "vqe_su2",
+          "clase_gemelo": "bmw_quark_cardinality",
+          "n_clase": 1048,
+          "circuitos": 6,
+          "porcentaje": 0.0057251908396946565
+        },
+        {
+          "clase": "dj",
+          "clase_gemelo": "bv",
+          "n_clase": 675,
+          "circuitos": 5,
+          "porcentaje": 0.007407407407407408
+        },
+        {
+          "clase": "vqe_real_amp",
+          "clase_gemelo": "vqe_two_local",
+          "n_clase": 655,
+          "circuitos": 3,
+          "porcentaje": 0.004580152671755725
+        },
+        {
+          "clase": "vqe_two_local",
+          "clase_gemelo": "vqe_real_amp",
+          "n_clase": 627,
+          "circuitos": 3,
+          "porcentaje": 0.004784688995215311
+        },
+        {
+          "clase": "bmw_quark_cardinality",
+          "clase_gemelo": "vqe_su2",
+          "n_clase": 264,
+          "circuitos": 2,
+          "porcentaje": 0.007575757575757576
         }
       ],
       "finalistas": {
@@ -1159,6 +1203,50 @@
           "n": 165,
           "con_gemelo": 0.0,
           "gemelo_otra_clase": 0.0
+        }
+      ],
+      "cruzados": [
+        {
+          "clase": "bv",
+          "clase_gemelo": "dj",
+          "n_clase": 665,
+          "circuitos": 11,
+          "porcentaje": 0.016541353383458645
+        },
+        {
+          "clase": "vqe_su2",
+          "clase_gemelo": "bmw_quark_cardinality",
+          "n_clase": 1048,
+          "circuitos": 6,
+          "porcentaje": 0.0057251908396946565
+        },
+        {
+          "clase": "dj",
+          "clase_gemelo": "bv",
+          "n_clase": 675,
+          "circuitos": 5,
+          "porcentaje": 0.007407407407407408
+        },
+        {
+          "clase": "vqe_real_amp",
+          "clase_gemelo": "vqe_two_local",
+          "n_clase": 655,
+          "circuitos": 3,
+          "porcentaje": 0.004580152671755725
+        },
+        {
+          "clase": "vqe_two_local",
+          "clase_gemelo": "vqe_real_amp",
+          "n_clase": 627,
+          "circuitos": 3,
+          "porcentaje": 0.004784688995215311
+        },
+        {
+          "clase": "bmw_quark_cardinality",
+          "clase_gemelo": "vqe_su2",
+          "n_clase": 264,
+          "circuitos": 2,
+          "porcentaje": 0.007575757575757576
         }
       ],
       "finalistas": {
