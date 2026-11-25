@@ -8,8 +8,9 @@ gradients are accumulated, so that every optimiser step still sees the whole bat
   excluded) divided by the total weight of the **whole batch** (computed from its targets
   before any forward pass), so the accumulated gradient equals that of the whole batch at
   once (up to rounding; BatchNorm statistics are the only part computed per micro-batch);
-* with mixed precision, every micro-batch is scaled and back-propagated, and the optimiser
-  and the gradient scaler take **one** step per whole batch;
+* with mixed precision (bfloat16 by default; float16 uses a gradient scaler), every
+  micro-batch is (scaled and) back-propagated, and the optimiser (and the scaler) take
+  **one** step per whole batch;
 * if a micro-batch raises ``torch.OutOfMemoryError``, the gradients of the batch are
   discarded, the cache is emptied and the **same batch** is retried with micro-batches of
   half the size, down to ``min_micro_nodes`` (20 000, above the largest graph). The smaller
@@ -68,14 +69,14 @@ class AccumulatingStep:
         scaler: torch.amp.GradScaler,
         *,
         device: str,
-        amp: bool,
+        amp_dtype: torch.dtype | None,
         micro_nodes: int,
         min_micro_nodes: int,
     ) -> None:
         if micro_nodes < min_micro_nodes:
             raise ValueError("micro_nodes must be at least min_micro_nodes")
         self.model, self.loss, self.optimizer, self.scaler = model, loss, optimizer, scaler
-        self.device, self.amp = device, amp
+        self.device, self.amp_dtype = device, amp_dtype
         self.micro_nodes, self.min_micro_nodes = int(micro_nodes), int(min_micro_nodes)
 
     def _accumulate(self, batch: Batch) -> StepResult:
@@ -84,7 +85,9 @@ class AccumulatingStep:
         parts = split_batch(batch, self.micro_nodes)
         for part in parts:
             part = part.to(self.device, non_blocking=True)
-            with torch.autocast("cuda", dtype=torch.float16, enabled=self.amp):
+            with torch.autocast(
+                "cuda", dtype=self.amp_dtype or torch.float16, enabled=self.amp_dtype is not None
+            ):
                 output = self.model(part)
             loss_sums = self.loss.sums(output, part.y_algoritmo, part.y_familia)
             share = self.loss.from_sums(loss_sums, algorithm_total, family_total)

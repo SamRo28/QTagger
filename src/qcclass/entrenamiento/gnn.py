@@ -7,7 +7,9 @@ block (after its cap, with its class weights) and evaluates it on the held-out b
   cosine decay to 0, updated at every step (fractional epochs);
 * batches limited by a node budget (``presupuesto_nodos``), reshuffled every epoch with a
   seed derived from the run seed and the block; ``workers`` loading processes;
-* mixed precision (float16 autocast + gradient scaler) only on CUDA;
+* mixed precision only on CUDA, bfloat16 by default (float16 overflowed in the first search
+  trial: the scaler then skipped every step and the loss stayed NaN);
+* an epoch whose loss is not finite stops the run (:class:`TrainingDiverged`);
 * gradient accumulation over micro-batches when the whole batch does not fit in the GPU,
   with the exact loss of the whole batch and one optimiser step per batch; on an
   out-of-memory error the batch is retried with micro-batches of half the size
@@ -65,6 +67,32 @@ PREDICTIONS_FILE = "predicciones.parquet"
 ARCHITECTURE_FILE = "arquitectura.json"
 CHECKPOINT_DIR = "puntos"
 DEVICES = ("auto", "cuda", "cpu", "mps")
+AMP_DTYPES = {"bfloat16": torch.bfloat16, "float16": torch.float16}
+
+
+class TrainingDiverged(RuntimeError):
+    """The loss of a whole epoch was not finite: training stopped (no point going on)."""
+
+
+def mixed_precision(training: "TrainingSettings", device: str) -> torch.dtype | None:
+    """Autocast type of a run: ``None`` (float32) unless mixed precision on CUDA.
+
+    Raises:
+        ValueError: if bfloat16 is asked for on a GPU without it.
+    """
+    if not (training.precision_mixta and device == "cuda"):
+        return None
+    dtype = AMP_DTYPES[training.tipo_precision_mixta]
+    if dtype is torch.bfloat16 and not torch.cuda.is_bf16_supported():
+        raise ValueError("this GPU has no bfloat16: use tipo_precision_mixta: float16")
+    return dtype
+
+
+def precision_name(dtype: torch.dtype | None) -> str:
+    """``bfloat16``, ``float16`` or ``float32``."""
+    return "float32" if dtype is None else str(dtype).removeprefix("torch.")
+
+
 RAM_INTERVAL = 1.0  # seconds between RAM samples during training
 DEFAULT_MIN_MICRO_NODES = 20_000  # smallest micro-batch: above the largest graph (19 937)
 
@@ -80,6 +108,7 @@ class TrainingSettings:
     calentamiento: float = 0.05
     presupuesto_nodos: int = 100_000
     precision_mixta: bool = True
+    tipo_precision_mixta: str = "bfloat16"
     variante_aristas: str = "completo"
     evaluar_cada: int = 1
 
@@ -88,6 +117,8 @@ class TrainingSettings:
             raise ValueError("epocas, presupuesto_nodos and evaluar_cada must be positive")
         if not 0 <= self.calentamiento < 1:
             raise ValueError("calentamiento must be in [0, 1)")
+        if self.tipo_precision_mixta not in AMP_DTYPES:
+            raise ValueError(f"tipo_precision_mixta must be one of {list(AMP_DTYPES)}")
 
     @classmethod
     def from_mapping(cls, values: dict[str, Any]) -> "TrainingSettings":
@@ -177,7 +208,11 @@ def run_identity(
         "entrenamiento": training.as_dict(),
         "semilla": int(seed),
         "microlote_inicial": int(budget if micro_nodes is None else min(micro_nodes, budget)),
-        "precision_mixta_efectiva": bool(training.precision_mixta and device == "cuda"),
+        "precision_mixta_efectiva": (
+            training.tipo_precision_mixta
+            if training.precision_mixta and device == "cuda"
+            else "float32"
+        ),
         "dispositivo": device,
         "codigo": training_code_version(),
     }
@@ -286,14 +321,16 @@ def _resource_readings(device: str, monitor: ResourceMonitor) -> dict[str, float
 
 @torch.no_grad()
 def predict(
-    model: CircuitGNN, loader: DataLoader, device: str, amp: bool
+    model: CircuitGNN, loader: DataLoader, device: str, amp_dtype: torch.dtype | None
 ) -> tuple[np.ndarray, np.ndarray]:
     """Probabilities of both heads for every graph of ``loader`` (in its order)."""
     model.eval()
     algorithm, family = [], []
     for batch in loader:
         batch = batch.to(device, non_blocking=True)
-        with torch.autocast("cuda", dtype=torch.float16, enabled=amp):
+        with torch.autocast(
+            "cuda", dtype=amp_dtype or torch.float16, enabled=amp_dtype is not None
+        ):
             output = model(batch)
         algorithm.append(output.algoritmo.float().softmax(dim=1).cpu())
         family.append(output.familia.float().softmax(dim=1).cpu())
@@ -364,7 +401,7 @@ def train_block(
             directory=directory,
             extra=stored,
         )
-    amp = training.precision_mixta and device == "cuda"
+    amp_dtype = mixed_precision(training, device)
     rows = pool.rows
     train_rows = rows.iloc[fold.train_index]
     held_rows = rows.iloc[fold.held_out_index]
@@ -421,7 +458,7 @@ def train_block(
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=training.tasa_aprendizaje, weight_decay=training.regularizacion_pesos
     )
-    scaler = torch.amp.GradScaler("cuda", enabled=amp)
+    scaler = torch.amp.GradScaler("cuda", enabled=amp_dtype is torch.float16)
     checkpoints = CheckpointManager(directory / CHECKPOINT_DIR)
     history: list[dict[str, Any]] = []
     start, resumed = 0, None
@@ -448,7 +485,7 @@ def train_block(
         optimizer,
         scaler,
         device=device,
-        amp=amp,
+        amp_dtype=amp_dtype,
         micro_nodes=max(micro, min_micro_nodes),
         min_micro_nodes=min_micro_nodes,
     )
@@ -493,13 +530,19 @@ def train_block(
             last = epoch + 1 == training.epocas
             if last or (epoch + 1) % training.evaluar_cada == 0:
                 evaluation_start = time.perf_counter()
-                p_alg, p_fam = predict(model, eval_loader, device, amp)
+                p_alg, p_fam = predict(model, eval_loader, device, amp_dtype)
                 metrics["f1_macro_algoritmo"] = _macro_f1(y_alg, p_alg)
                 metrics["f1_macro_familia"] = _macro_f1(y_fam, p_fam)
                 metrics["segundos_evaluacion"] = time.perf_counter() - evaluation_start
             metrics.update(_resource_readings(device, monitor))
             metrics["segundos_epoca"] = time.perf_counter() - epoch_start
             metrics = {k: float(v) for k, v in metrics.items()}  # plain floats: weights_only load
+            if not math.isfinite(metrics["perdida"]):
+                if run is not None:
+                    run.log_metrics({f"{metric_prefix}perdida_no_finita": 1.0}, step=epoch + 1)
+                raise TrainingDiverged(
+                    f"block {fold.block}, epoch {epoch + 1}: loss {metrics['perdida']}"
+                )
             history.append({"epoca": epoch + 1, **metrics})
             checkpoints.save(
                 epoch + 1,
@@ -544,7 +587,7 @@ def train_block(
         monitor.__exit__(None, None, None)
 
     if start >= training.epocas:  # every epoch was saved, the result was not
-        p_alg, p_fam = predict(model, eval_loader, device, amp)
+        p_alg, p_fam = predict(model, eval_loader, device, amp_dtype)
     final = history[-1]
     table = make_table(
         held_rows["id"],
@@ -563,7 +606,7 @@ def train_block(
         "historial": history,
         "segundos": seconds,
         "dispositivo": device,
-        "precision_mixta": amp,
+        "precision_mixta": precision_name(amp_dtype),
         "identidad": identity,
         "huella": fingerprint,
         "reanudado_desde": resumed,

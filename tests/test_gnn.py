@@ -474,7 +474,7 @@ def _accumulation_setup(seed: int = 4):
             optimizer,
             scaler,
             device="cpu",
-            amp=False,
+            amp_dtype=None,
             micro_nodes=micro,
             min_micro_nodes=minimum,
         )
@@ -727,3 +727,91 @@ def test_trials_that_would_pass_the_ceiling_are_not_started(synthetic, tmp_path:
     summary = failed_trials(study)
     assert [s["intento"] for s in summary["omitidos_por_techo"]] == [0]
     assert summary["fallos"] == []
+
+
+def test_precision_settings_and_divergence(synthetic, tmp_path: Path, monkeypatch) -> None:
+    from qcclass.entrenamiento import microlotes
+    from qcclass.entrenamiento.gnn import (
+        TrainingDiverged,
+        mixed_precision,
+        precision_name,
+        run_identity,
+    )
+    from qcclass.entrenamiento.microlotes import StepResult
+
+    settings = TrainingSettings(epocas=2, tasa_aprendizaje=1e-2, regularizacion_pesos=1e-4)
+    assert settings.tipo_precision_mixta == "bfloat16"
+    assert mixed_precision(settings, "cpu") is None and precision_name(None) == "float32"
+    assert (
+        run_identity({}, settings, 1, device="cuda", micro_nodes=None)["precision_mixta_efectiva"]
+        == "bfloat16"
+    )
+    assert (
+        run_identity({}, settings, 1, device="cpu", micro_nodes=None)["precision_mixta_efectiva"]
+        == "float32"
+    )
+    with pytest.raises(ValueError, match="tipo_precision_mixta"):
+        TrainingSettings(
+            epocas=2,
+            tasa_aprendizaje=1e-2,
+            regularizacion_pesos=1e-4,
+            tipo_precision_mixta="float8",
+        )
+    monkeypatch.setattr(
+        microlotes.AccumulatingStep,
+        "__call__",
+        lambda self, batch: StepResult(float("nan"), float("nan"), 0.0, 1),
+    )
+    with pytest.raises(TrainingDiverged, match="epoch 1"):
+        _train(synthetic, tmp_path / "run")
+    assert not (tmp_path / "run" / "puntos").exists() or not any(
+        (tmp_path / "run" / "puntos").iterdir()
+    )  # no checkpoint of a diverged epoch
+
+
+def test_diverged_trials_are_failed_with_their_reason(
+    synthetic, tmp_path: Path, monkeypatch
+) -> None:
+    import optuna
+
+    from qcclass.entrenamiento import busqueda_gnn
+    from qcclass.entrenamiento.busqueda_gnn import (
+        DIVERGED_REASON,
+        SearchContext,
+        failed_trials,
+        load_search_config,
+        make_objective,
+    )
+    from qcclass.entrenamiento.gnn import TrainingDiverged
+    from qcclass.seguimiento.reintentos import RetryingStorage
+
+    pool, fold, graphs = synthetic
+    (tmp_path / "s.yaml").write_text(SMALL_SEARCH)
+    search = load_search_config(tmp_path / "s.yaml")
+    provenance = type("P", (), {"machine": "ci", "tags": {}, "machine_description": {}})()
+    config = type("C", (), {"rutas": type("R", (), {"graphs": graphs})()})()
+    storage = RetryingStorage(optuna.storages.InMemoryStorage())
+    ctx = SearchContext(
+        config=config,
+        search=search,
+        pool=pool,
+        folds=[fold],
+        storage=storage,
+        provenance=provenance,
+        device="cpu",
+        workers=0,
+        output=tmp_path / "gnn",
+        log_to_mlflow=False,
+    )
+
+    def diverge(**kwargs):  # noqa: ANN003, ANN202
+        raise TrainingDiverged("block 0, epoch 3: loss nan")
+
+    monkeypatch.setattr(busqueda_gnn, "train_block", diverge)
+    study = optuna.create_study(study_name="s", storage=storage, direction="maximize")
+    study.optimize(make_objective(ctx, study), n_trials=1, catch=(TrainingDiverged,))
+    trial = study.trials[0]
+    assert trial.state.name == "FAIL" and trial.user_attrs["motivo"] == DIVERGED_REASON
+    summary = failed_trials(study)
+    assert summary["omitidos_por_techo"] == []
+    assert summary["fallos"][0]["motivo"] == DIVERGED_REASON

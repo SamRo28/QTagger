@@ -24,6 +24,7 @@ entrenamiento:                         # TrainingSettings (src/qcclass/entrenami
   calentamiento: 0.05                  # fraction of the epochs
   presupuesto_nodos: 100000            # nodes per batch
   precision_mixta: true                # CUDA only; see comprobar-precision-mixta
+  tipo_precision_mixta: bfloat16   # float16 overflowed (NaN) in the first search trial
   variante_aristas: completo           # completo | solo_adelante | sin_direccion | sin_rol | sin_angulos
   evaluar_cada: 1                      # held-out macro F1 every N epochs (and at the end)
 

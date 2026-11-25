@@ -30,7 +30,14 @@ import torch
 from qcclass.circuitos import write_text_atomic
 from qcclass.config import ConfigError, DatasetConfig, SplitsConfig, load_experiment_config
 from qcclass.entrenamiento.bloques import fold_training, load_pool
-from qcclass.entrenamiento.gnn import PoolGraphs, TrainingSettings, _loader, _weights
+from qcclass.entrenamiento.gnn import (
+    PoolGraphs,
+    TrainingSettings,
+    _loader,
+    _weights,
+    mixed_precision,
+    precision_name,
+)
 from qcclass.entrenamiento.gnn_experimento import configure_cpu_threads
 from qcclass.entrenamiento.microlotes import AccumulatingStep
 from qcclass.formatos.construir import DAG_DIR
@@ -73,7 +80,8 @@ class Calibration:
         self.data = data
         self.device = device
         self.training = TrainingSettings.from_mapping(dict(data["entrenamiento"]))
-        self.amp = self.training.precision_mixta and device == "cuda"
+        self.amp_dtype = mixed_precision(self.training, device)
+        self.amp = self.amp_dtype is not None
         self.fixed = dict(data.get("fijos_modelo") or {})
         pool = load_pool(config, splits, data["nombre"])
         self.pool = pool
@@ -131,7 +139,7 @@ class Calibration:
             lr=self.training.tasa_aprendizaje,
             weight_decay=self.training.regularizacion_pesos,
         )
-        scaler = torch.amp.GradScaler("cuda", enabled=self.amp)
+        scaler = torch.amp.GradScaler("cuda", enabled=self.amp_dtype is torch.float16)
         memory = self.data["memoria"]
         step = AccumulatingStep(
             network,
@@ -139,7 +147,7 @@ class Calibration:
             optimizer,
             scaler,
             device=self.device,
-            amp=self.amp,
+            amp_dtype=self.amp_dtype,
             micro_nodes=self.training.presupuesto_nodos,
             min_micro_nodes=int(memory["microlote_minimo"]),
         )
@@ -208,7 +216,10 @@ def measure_time(
         allocated = torch.cuda.max_memory_allocated() / MB if gpu else 0.0
         reserved = torch.cuda.max_memory_reserved() / MB if gpu else 0.0
         network.eval()
-        with torch.no_grad(), torch.autocast("cuda", dtype=torch.float16, enabled=cal.amp):
+        with (
+            torch.no_grad(),
+            torch.autocast("cuda", dtype=cal.amp_dtype or torch.float16, enabled=cal.amp),
+        ):
             network(held_batches[0].to(cal.device))
             _sync()
             start, nodes = time.perf_counter(), 0
@@ -251,7 +262,7 @@ def measure_time(
         "pico_reservado_mb": reserved,
         "desborda": gpu and reserved > useful,
         "dispositivo": cal.device,
-        "precision_mixta": cal.amp,
+        "precision_mixta": precision_name(cal.amp_dtype),
         "hilos_cpu": torch.get_num_threads() if not gpu else None,
         "parametros": parameters,
     }

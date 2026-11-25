@@ -1,0 +1,29 @@
+# Phase 12: the configuration of the first search trial, whose loss became NaN at epoch 4 with
+# float16 mixed precision on the rtx3050 (the same run in float32 on the m1pro did not).
+# Trained again on block 0 with bfloat16 to check that the NaN is gone (qcclass entrenar-gnn).
+
+nombre: gnn_caso_nan
+experimento_mlflow: gnn_fase12_pruebas
+semilla: 42
+
+modelo:
+  tipo_capa: gine
+  dim: 128
+  capas: 4
+  dropout: 0.2863929207704588
+  nodo_virtual: true
+  agregacion: media_max
+  jumping_knowledge: true
+  cabezas_atencion: 4
+
+entrenamiento:
+  epocas: 50
+  tasa_aprendizaje: 0.0018695542869236665
+  regularizacion_pesos: 0.0067977571220529135
+  lambda_familia: 0.6471309670191066
+  calentamiento: 0.05
+  presupuesto_nodos: 100000
+  precision_mixta: true
+  tipo_precision_mixta: bfloat16
+  variante_aristas: completo
+  evaluar_cada: 10

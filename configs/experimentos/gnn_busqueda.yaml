@@ -38,5 +38,6 @@ fijos:
     calentamiento: 0.05
     presupuesto_nodos: 100000
     precision_mixta: true              # kept after the phase 11 check (-0.08 points)
+    tipo_precision_mixta: bfloat16   # float16 overflowed (NaN) in the first search trial
     variante_aristas: completo
     evaluar_cada: 10                   # held-out block every 10 epochs and at the last one

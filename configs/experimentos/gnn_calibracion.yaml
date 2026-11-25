@@ -18,6 +18,7 @@ entrenamiento:                         # as in gnn_busqueda.yaml (fixed part)
   calentamiento: 0.05
   presupuesto_nodos: 100000
   precision_mixta: true
+  tipo_precision_mixta: bfloat16   # float16 overflowed (NaN) in the first search trial
   variante_aristas: completo
   evaluar_cada: 10
 

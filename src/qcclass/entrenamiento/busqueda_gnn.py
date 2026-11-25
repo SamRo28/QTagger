@@ -46,6 +46,7 @@ from qcclass.entrenamiento.bloques import fold_training, load_pool
 from qcclass.entrenamiento.gnn import (
     DEFAULT_MIN_MICRO_NODES,
     PREDICTIONS_FILE,
+    TrainingDiverged,
     TrainingSettings,
     hyperparameter_fingerprint,
     resolve_training_device,
@@ -79,6 +80,7 @@ ESTIMATE_FILE = "estimacion.json"
 FINGERPRINT_ATTR = "huella"
 REASON_ATTR = "motivo"
 CEILING_REASON = "techo_tiempo"
+DIVERGED_REASON = "divergencia"
 DEFAULT_OVERHEAD = 1.15
 
 
@@ -358,6 +360,18 @@ def make_objective(ctx: SearchContext, study: optuna.Study) -> Callable[[optuna.
                     run.flush(block=False)
                 if reports.should_prune():
                     raise optuna.TrialPruned(f"after block {fold.block}")
+        except TrainingDiverged as error:
+            logger.warning("trial %d diverged: %s", trial.number, error)
+            trial.set_user_attr(REASON_ATTR, DIVERGED_REASON)
+            trial.set_user_attr("detalle", str(error))
+            try:
+                reports.flush()
+                if run is not None:
+                    run.set_tags({"estado": "divergencia"})
+                _finish(run, "FAILED")
+            except Exception:  # noqa: BLE001 - the divergence matters more
+                logger.exception("could not close the MLflow run of trial %d", trial.number)
+            raise
         except optuna.TrialPruned:
             reports.flush()
             if run is not None:
@@ -420,7 +434,14 @@ def failed_trials(study: optuna.Study) -> dict[str, list[dict[str, Any]]]:
                 }
             )
         else:
-            failures.append({**entry, "parametros": t.params})
+            failures.append(
+                {
+                    **entry,
+                    "parametros": t.params,
+                    "motivo": t.user_attrs.get(REASON_ATTR, "error"),
+                    "detalle": t.user_attrs.get("detalle"),
+                }
+            )
     return {"omitidos_por_techo": skipped, "fallos": failures}
 
 
@@ -509,7 +530,8 @@ def run_search(
         study_name=search.name,
         storage=storage,
         sampler=optuna.samplers.TPESampler(
-            seed=derive_seed(search.seed, search.name, "tpe"), constant_liar=True
+            seed=derive_seed(search.seed, search.name, "tpe", provenance.machine),
+            constant_liar=True,
         ),
         pruner=optuna.pruners.MedianPruner(n_startup_trials=search.pruning_startup),
         direction="maximize",
@@ -576,7 +598,7 @@ def run_search(
                 optuna.study.MaxTrialsCallback(search.trials, states=FINISHED),
                 after_trial,
             ],
-            catch=(torch.OutOfMemoryError, CeilingSkip),
+            catch=(torch.OutOfMemoryError, CeilingSkip, TrainingDiverged),
             gc_after_trial=True,
         )
     logger.info(

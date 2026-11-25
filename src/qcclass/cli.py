@@ -670,6 +670,7 @@ def entrenar_gnn(
     from dataclasses import replace
 
     from qcclass.config import ConfigError
+    from qcclass.entrenamiento.gnn import TrainingDiverged
     from qcclass.entrenamiento.gnn_experimento import (
         cuda_allocator_environment,
         load_gnn_experiment,
@@ -699,7 +700,7 @@ def entrenar_gnn(
             workers=procesos,
             max_batches=max_lotes,
         )
-    except (ConfigError, ServerConnectionError, VersionError, ValueError) as exc:
+    except (ConfigError, ServerConnectionError, VersionError, ValueError, TrainingDiverged) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     epochs = [h["segundos_epoca"] for h in result.history]
@@ -842,6 +843,7 @@ def comprobar_precision_mixta(
 ) -> None:
     """Phase 11: reference configuration on its block with and without mixed precision (CUDA)."""
     from qcclass.config import ConfigError
+    from qcclass.entrenamiento.gnn import TrainingDiverged
     from qcclass.entrenamiento.gnn_experimento import (
         check_mixed_precision,
         cuda_allocator_environment,
@@ -857,7 +859,7 @@ def comprobar_precision_mixta(
         experiment = load_gnn_experiment(experimento)
         load_env(dataset.rutas.raiz)
         report = check_mixed_precision(dataset, split_config, experiment, workers=procesos)
-    except (ConfigError, ServerConnectionError, VersionError, ValueError) as exc:
+    except (ConfigError, ServerConnectionError, VersionError, ValueError, TrainingDiverged) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     for key in ("con", "sin"):
