@@ -12,6 +12,8 @@ bloques: null                          # null = the 5 blocks
 poda:
   intentos_iniciales: 10               # MedianPruner: complete trials before pruning
   informe_cada_epocas: 10              # block 0: intermediate value every N epochs
+prevision:                             # before every trial, its duration from the machine's
+  sobrecoste: 1.15                     # calibration: not started if it would end after the ceiling
 estimacion:
   tras_intentos: 10                    # estimate the remaining time from real trials
   limite_horas: 72                     # projected total above it: warning

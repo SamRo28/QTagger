@@ -662,3 +662,68 @@ def test_missing_graphs_give_a_clear_error(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="graphs are missing"):
         graph_sizes(tmp_path / "dag")
+
+
+def test_time_model_from_the_calibrations(repo_root: Path) -> None:
+    from qcclass.modelos.tiempo import TimeModel
+
+    gpu = TimeModel.load(repo_root / "results", "rtx3050")
+    cpu = TimeModel.load(repo_root / "results", "m1pro")
+    assert gpu is not None and cpu is not None
+    small = {"tipo_capa": "gine", "dim": 64, "capas": 3}
+    big = {"tipo_capa": "gatv2", "dim": 128, "capas": 6}
+    assert gpu.epoch_seconds(small) == pytest.approx(3.7, rel=0.2)
+    assert cpu.epoch_seconds(big) == pytest.approx(187, rel=0.2)
+    assert cpu.epoch_seconds(big) > 3 * gpu.epoch_seconds(big)
+    hours = gpu.trial_hours(small, epochs=100, blocks=5, evaluate_every=10, overhead=1.0)
+    assert hours == pytest.approx(
+        5 * (100 + 10 * gpu.evaluation_ratio) * gpu.epoch_seconds(small) / 3600
+    )
+    assert TimeModel.load(repo_root / "results", "otro") is None
+
+
+def test_trials_that_would_pass_the_ceiling_are_not_started(synthetic, tmp_path: Path) -> None:
+    import optuna
+
+    from qcclass.entrenamiento.busqueda_gnn import (
+        CEILING_REASON,
+        CeilingSkip,
+        SearchContext,
+        failed_trials,
+        load_search_config,
+        make_objective,
+    )
+    from qcclass.modelos.tiempo import TimeModel
+    from qcclass.seguimiento.reintentos import RetryingStorage
+
+    pool, fold, graphs = synthetic
+    (tmp_path / "s.yaml").write_text(SMALL_SEARCH + "limite_horas: 1\n")
+    search = load_search_config(tmp_path / "s.yaml")
+    assert search.max_hours == 1 and search.overhead == pytest.approx(1.15)
+    provenance = type("P", (), {"machine": "ci", "tags": {}, "machine_description": {}})()
+    config = type("C", (), {"rutas": type("R", (), {"graphs": graphs})()})()
+    storage = RetryingStorage(optuna.storages.InMemoryStorage())
+    slow = TimeModel((math.log(1e5), 0.0, 0.0, 0.0), 0.1)  # 1e5 s per epoch
+    ctx = SearchContext(
+        config=config,
+        search=search,
+        pool=pool,
+        folds=[fold],
+        storage=storage,
+        provenance=provenance,
+        device="cpu",
+        workers=0,
+        output=tmp_path / "gnn",
+        log_to_mlflow=False,
+        time_model=slow,
+    )
+    study = optuna.create_study(study_name="s", storage=storage, direction="maximize")
+    study.optimize(make_objective(ctx, study), n_trials=1, catch=(CeilingSkip,))
+    trial = study.trials[0]
+    assert trial.state.name == "FAIL" and trial.user_attrs["motivo"] == CEILING_REASON
+    assert trial.user_attrs["horas_previstas"] > 1
+    assert trial.user_attrs["parametros"]["entrenamiento"]["epocas"] == 2
+    assert not (tmp_path / "gnn").exists()  # nothing trained
+    summary = failed_trials(study)
+    assert [s["intento"] for s in summary["omitidos_por_techo"]] == [0]
+    assert summary["fallos"] == []

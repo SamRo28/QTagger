@@ -1,0 +1,381 @@
+{
+  "equipo": "rtx3050",
+  "bloque": 0,
+  "nodos_entrenamiento": 6602134,
+  "nodos_evaluacion": 1918536,
+  "memoria": [
+    {
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gine",
+        "dim": 64,
+        "capas": 3,
+        "nodo_virtual": false,
+        "agregacion": "media_max"
+      },
+      "mb_por_nodo": 0.004024155001009885,
+      "pico_asignado_mb": 107.232421875,
+      "base_mb": 12.91748046875,
+      "nodos_microlote": 24789,
+      "mb_por_nodo_predicho": 0.004897847071150461
+    },
+    {
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gine",
+        "dim": 128,
+        "capas": 3,
+        "nodo_virtual": false,
+        "agregacion": "media_max"
+      },
+      "mb_por_nodo": 0.007421958538280582,
+      "pico_asignado_mb": 193.71044921875,
+      "base_mb": 18.81982421875,
+      "nodos_microlote": 24789,
+      "mb_por_nodo_predicho": 0.009430238332003335
+    },
+    {
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gine",
+        "dim": 64,
+        "capas": 8,
+        "nodo_virtual": false,
+        "agregacion": "media_max"
+      },
+      "mb_por_nodo": 0.0094505000415835,
+      "pico_asignado_mb": 240.4609375,
+      "base_mb": 17.35693359375,
+      "nodos_microlote": 24789,
+      "mb_por_nodo_predicho": 0.012451832505905251
+    },
+    {
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gine",
+        "dim": 128,
+        "capas": 8,
+        "nodo_virtual": true,
+        "agregacion": "atencion"
+      },
+      "mb_por_nodo": 0.030076867284775686,
+      "pico_asignado_mb": 733.0078125,
+      "base_mb": 23.98388671875,
+      "nodos_microlote": 24789,
+      "mb_por_nodo_predicho": 0.029740406524411934
+    },
+    {
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gine",
+        "dim": 64,
+        "capas": 5,
+        "nodo_virtual": true,
+        "agregacion": "media_max"
+      },
+      "mb_por_nodo": 0.009715339596105408,
+      "pico_asignado_mb": 246.02001953125,
+      "base_mb": 17.01708984375,
+      "nodos_microlote": 24789,
+      "mb_por_nodo_predicho": 0.010520539906501886
+    },
+    {
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gine",
+        "dim": 128,
+        "capas": 5,
+        "nodo_virtual": false,
+        "agregacion": "atencion"
+      },
+      "mb_por_nodo": 0.011863944172666572,
+      "pico_asignado_mb": 300.9775390625,
+      "base_mb": 19.87060546875,
+      "nodos_microlote": 24789,
+      "mb_por_nodo_predicho": 0.015473426679807167
+    },
+    {
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gatv2",
+        "dim": 64,
+        "capas": 3,
+        "nodo_virtual": false,
+        "agregacion": "media_max"
+      },
+      "mb_por_nodo": 0.010991433242146659,
+      "pico_asignado_mb": 269.01904296875,
+      "base_mb": 16.3359375,
+      "nodos_microlote": 24789,
+      "mb_por_nodo_predicho": 0.009176991437827815
+    },
+    {
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gatv2",
+        "dim": 128,
+        "capas": 3,
+        "nodo_virtual": true,
+        "agregacion": "atencion"
+      },
+      "mb_por_nodo": 0.02087361734863606,
+      "pico_asignado_mb": 498.68994140625,
+      "base_mb": 18.841796875,
+      "nodos_microlote": 24789,
+      "mb_por_nodo_predicho": 0.02319072438825706
+    },
+    {
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gatv2",
+        "dim": 64,
+        "capas": 8,
+        "nodo_virtual": false,
+        "agregacion": "atencion"
+      },
+      "mb_por_nodo": 0.024399002404417357,
+      "pico_asignado_mb": 589.943359375,
+      "base_mb": 17.24755859375,
+      "nodos_microlote": 24789,
+      "mb_por_nodo_predicho": 0.023862884150378193
+    },
+    {
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gatv2",
+        "dim": 128,
+        "capas": 8,
+        "nodo_virtual": true,
+        "agregacion": "atencion"
+      },
+      "mb_por_nodo": 0.04744354761459224,
+      "pico_asignado_mb": 1141.2578125,
+      "base_mb": 23.99560546875,
+      "nodos_microlote": 24789,
+      "mb_por_nodo_predicho": 0.05256250981335782
+    },
+    {
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gatv2",
+        "dim": 128,
+        "capas": 5,
+        "nodo_virtual": false,
+        "agregacion": "media_max"
+      },
+      "mb_por_nodo": 0.031257889726499385,
+      "pico_asignado_mb": 742.990234375,
+      "base_mb": 20.3740234375,
+      "nodos_microlote": 24789,
+      "mb_por_nodo_predicho": 0.029737241235398344
+    },
+    {
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gatv2",
+        "dim": 64,
+        "capas": 5,
+        "nodo_virtual": true,
+        "agregacion": "atencion"
+      },
+      "mb_por_nodo": 0.01622266998740614,
+      "pico_asignado_mb": 391.2509765625,
+      "base_mb": 16.9033203125,
+      "nodos_microlote": 24789,
+      "mb_por_nodo_predicho": 0.017652447184297475
+    }
+  ],
+  "modelo_memoria": "/home/samue/QTagger/results/medicion/memoria_gnn_rtx3050.json",
+  "coeficientes": {
+    "constante": 0.00036545581029758667,
+    "dim": 0.0,
+    "dim_x_capas": 2.360620448360872e-05,
+    "dim_x_capas_gatv2": 2.2287210243111215e-05,
+    "dim_nodo_virtual": 4.064216658514858e-05,
+    "dim_atencion": 0.0
+  },
+  "estimaciones": [
+    {
+      "nombre": "gine_64x3",
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gine",
+        "dim": 64,
+        "capas": 3,
+        "nodo_virtual": false,
+        "agregacion": "media_max"
+      },
+      "microlote_inicial": 100000,
+      "microlote_nodos": 100000,
+      "segundos_entrenamiento_epoca": 3.6730986861666852,
+      "segundos_evaluacion": 0.41599613794501483,
+      "horas_por_intento": {
+        "50": 0.2579651597195268,
+        "100": 0.5159303194390537,
+        "150": 0.7738954791585805
+      },
+      "pico_asignado_mb": 488.93505859375,
+      "pico_reservado_mb": 578.0,
+      "desborda": false,
+      "parametros": 57882
+    },
+    {
+      "nombre": "gine_128x8",
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gine",
+        "dim": 128,
+        "capas": 8,
+        "nodo_virtual": true,
+        "agregacion": "atencion"
+      },
+      "microlote_inicial": 50000,
+      "microlote_nodos": 50000,
+      "segundos_entrenamiento_epoca": 30.643558331154676,
+      "segundos_evaluacion": 2.5082076319911075,
+      "horas_por_intento": {
+        "50": 2.1454429926634577,
+        "100": 4.2908859853269155,
+        "150": 6.436328977990373
+      },
+      "pico_asignado_mb": 1676.57177734375,
+      "pico_reservado_mb": 1934.0,
+      "desborda": false,
+      "parametros": 559899
+    },
+    {
+      "nombre": "gatv2_64x3",
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gatv2",
+        "dim": 64,
+        "capas": 3,
+        "nodo_virtual": false,
+        "agregacion": "media_max"
+      },
+      "microlote_inicial": 100000,
+      "microlote_nodos": 100000,
+      "segundos_entrenamiento_epoca": 7.344317091235203,
+      "segundos_evaluacion": 0.8861553338410574,
+      "horas_por_intento": {
+        "50": 0.5161758767096741,
+        "100": 1.0323517534193483,
+        "150": 1.5485276301290227
+      },
+      "pico_asignado_mb": 1225.90576171875,
+      "pico_reservado_mb": 1362.0,
+      "desborda": false,
+      "parametros": 58074
+    },
+    {
+      "nombre": "gatv2_128x8",
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gatv2",
+        "dim": 128,
+        "capas": 8,
+        "nodo_virtual": true,
+        "agregacion": "atencion"
+      },
+      "microlote_inicial": 50000,
+      "microlote_nodos": 50000,
+      "segundos_entrenamiento_epoca": 46.23189288856776,
+      "segundos_evaluacion": 4.137960011843162,
+      "horas_por_intento": {
+        "50": 3.239283950677227,
+        "100": 6.478567901354454,
+        "150": 9.717851852031682
+      },
+      "pico_asignado_mb": 2517.77490234375,
+      "pico_reservado_mb": 2814.0,
+      "desborda": false,
+      "parametros": 560923
+    },
+    {
+      "nombre": "media_gine_128x5",
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gine",
+        "dim": 128,
+        "capas": 5,
+        "nodo_virtual": true,
+        "agregacion": "media_max"
+      },
+      "microlote_inicial": 100000,
+      "microlote_nodos": 100000,
+      "segundos_entrenamiento_epoca": 14.46620060323064,
+      "segundos_evaluacion": 1.5826554906794166,
+      "horas_por_intento": {
+        "50": 1.015587927242957,
+        "100": 2.031175854485914,
+        "150": 3.046763781728871
+      },
+      "pico_asignado_mb": 2038.27392578125,
+      "pico_reservado_mb": 2350.0,
+      "desborda": false,
+      "parametros": 390554
+    },
+    {
+      "nombre": "media_gatv2_64x5",
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gatv2",
+        "dim": 64,
+        "capas": 5,
+        "nodo_virtual": false,
+        "agregacion": "atencion"
+      },
+      "microlote_inicial": 100000,
+      "microlote_nodos": 100000,
+      "segundos_entrenamiento_epoca": 10.951581838369474,
+      "segundos_evaluacion": 1.2398935368621156,
+      "horas_por_intento": {
+        "50": 0.7691368883372004,
+        "100": 1.5382737766744008,
+        "150": 2.3074106650116013
+      },
+      "pico_asignado_mb": 1734.47265625,
+      "pico_reservado_mb": 1884.0,
+      "desborda": false,
+      "parametros": 76059
+    }
+  ],
+  "version_dataset": "dataset-v1.1",
+  "git_commit": "4f76393bdf673e2eebc7992dc51d282731b5b5c7"
+}

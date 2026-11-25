@@ -1,0 +1,182 @@
+{
+  "equipo": "m1pro",
+  "bloque": 0,
+  "nodos_entrenamiento": 6602134,
+  "nodos_evaluacion": 1918536,
+  "memoria": [],
+  "dispositivo": "cpu",
+  "modelo_memoria": null,
+  "coeficientes": null,
+  "estimaciones": [
+    {
+      "nombre": "gine_64x3",
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gine",
+        "dim": 64,
+        "capas": 3,
+        "nodo_virtual": false,
+        "agregacion": "media_max"
+      },
+      "microlote_inicial": 100000,
+      "microlote_nodos": 100000,
+      "segundos_entrenamiento_epoca": 18.15869517666418,
+      "segundos_evaluacion": 2.274292026219106,
+      "horas_por_intento": {
+        "50": 1.2768141930059786,
+        "100": 2.5536283860119573
+      },
+      "pico_asignado_mb": 0.0,
+      "pico_reservado_mb": 0.0,
+      "desborda": false,
+      "dispositivo": "cpu",
+      "precision_mixta": false,
+      "hilos_cpu": 6,
+      "parametros": 57882
+    },
+    {
+      "nombre": "gine_128x6",
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gine",
+        "dim": 128,
+        "capas": 6,
+        "nodo_virtual": true,
+        "agregacion": "atencion"
+      },
+      "microlote_inicial": 100000,
+      "microlote_nodos": 100000,
+      "segundos_entrenamiento_epoca": 100.51973185302217,
+      "segundos_evaluacion": 9.001970573987466,
+      "horas_por_intento": {
+        "50": 7.0430506187792306,
+        "100": 14.086101237558461
+      },
+      "pico_asignado_mb": 0.0,
+      "pico_reservado_mb": 0.0,
+      "desborda": false,
+      "dispositivo": "cpu",
+      "precision_mixta": false,
+      "hilos_cpu": 6,
+      "parametros": 425243
+    },
+    {
+      "nombre": "gatv2_64x3",
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gatv2",
+        "dim": 64,
+        "capas": 3,
+        "nodo_virtual": false,
+        "agregacion": "media_max"
+      },
+      "microlote_inicial": 100000,
+      "microlote_nodos": 100000,
+      "segundos_entrenamiento_epoca": 30.209986349569906,
+      "segundos_evaluacion": 3.9542316341067125,
+      "horas_por_intento": {
+        "50": 2.1253756606236514,
+        "100": 4.250751321247303
+      },
+      "pico_asignado_mb": 0.0,
+      "pico_reservado_mb": 0.0,
+      "desborda": false,
+      "dispositivo": "cpu",
+      "precision_mixta": false,
+      "hilos_cpu": 6,
+      "parametros": 58074
+    },
+    {
+      "nombre": "gatv2_128x6",
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gatv2",
+        "dim": 128,
+        "capas": 6,
+        "nodo_virtual": true,
+        "agregacion": "atencion"
+      },
+      "microlote_inicial": 100000,
+      "microlote_nodos": 100000,
+      "segundos_entrenamiento_epoca": 186.9896894023886,
+      "segundos_evaluacion": 15.419837297455127,
+      "horas_por_intento": {
+        "50": 13.092477300842644,
+        "100": 26.184954601685288
+      },
+      "pico_asignado_mb": 0.0,
+      "pico_reservado_mb": 0.0,
+      "desborda": false,
+      "dispositivo": "cpu",
+      "precision_mixta": false,
+      "hilos_cpu": 6,
+      "parametros": 426011
+    },
+    {
+      "nombre": "media_gine_128x4",
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gine",
+        "dim": 128,
+        "capas": 4,
+        "nodo_virtual": true,
+        "agregacion": "media_max"
+      },
+      "microlote_inicial": 100000,
+      "microlote_nodos": 100000,
+      "segundos_entrenamiento_epoca": 47.19550723725557,
+      "segundos_evaluacion": 5.792648889392176,
+      "horas_por_intento": {
+        "50": 3.317692508763527,
+        "100": 6.635385017527054
+      },
+      "pico_asignado_mb": 0.0,
+      "pico_reservado_mb": 0.0,
+      "desborda": false,
+      "dispositivo": "cpu",
+      "precision_mixta": false,
+      "hilos_cpu": 6,
+      "parametros": 323226
+    },
+    {
+      "nombre": "media_gatv2_64x5",
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gatv2",
+        "dim": 64,
+        "capas": 5,
+        "nodo_virtual": false,
+        "agregacion": "atencion"
+      },
+      "microlote_inicial": 100000,
+      "microlote_nodos": 100000,
+      "segundos_entrenamiento_epoca": 50.50398890955129,
+      "segundos_evaluacion": 6.651447796871445,
+      "horas_por_intento": {
+        "50": 3.553412061752669,
+        "100": 7.106824123505338
+      },
+      "pico_asignado_mb": 0.0,
+      "pico_reservado_mb": 0.0,
+      "desborda": false,
+      "dispositivo": "cpu",
+      "precision_mixta": false,
+      "hilos_cpu": 6,
+      "parametros": 76059
+    }
+  ],
+  "version_dataset": "dataset-v1.1",
+  "git_commit": "d2486543c417886d161413165782b24c76071b56"
+}

@@ -1,0 +1,227 @@
+{
+  "machine": "rtx3050",
+  "coefficients": [
+    0.00036545581029758667,
+    0.0,
+    2.360620448360872e-05,
+    2.2287210243111215e-05,
+    4.064216658514858e-05,
+    0.0
+  ],
+  "useful_mb": 3300.0,
+  "margin": 1.15,
+  "measurements": [
+    {
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gine",
+        "dim": 64,
+        "capas": 3,
+        "nodo_virtual": false,
+        "agregacion": "media_max"
+      },
+      "mb_por_nodo": 0.004024155001009885,
+      "pico_asignado_mb": 107.232421875,
+      "base_mb": 12.91748046875,
+      "nodos_microlote": 24789,
+      "mb_por_nodo_predicho": 0.004897847071150461
+    },
+    {
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gine",
+        "dim": 128,
+        "capas": 3,
+        "nodo_virtual": false,
+        "agregacion": "media_max"
+      },
+      "mb_por_nodo": 0.007421958538280582,
+      "pico_asignado_mb": 193.71044921875,
+      "base_mb": 18.81982421875,
+      "nodos_microlote": 24789,
+      "mb_por_nodo_predicho": 0.009430238332003335
+    },
+    {
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gine",
+        "dim": 64,
+        "capas": 8,
+        "nodo_virtual": false,
+        "agregacion": "media_max"
+      },
+      "mb_por_nodo": 0.0094505000415835,
+      "pico_asignado_mb": 240.4609375,
+      "base_mb": 17.35693359375,
+      "nodos_microlote": 24789,
+      "mb_por_nodo_predicho": 0.012451832505905251
+    },
+    {
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gine",
+        "dim": 128,
+        "capas": 8,
+        "nodo_virtual": true,
+        "agregacion": "atencion"
+      },
+      "mb_por_nodo": 0.030076867284775686,
+      "pico_asignado_mb": 733.0078125,
+      "base_mb": 23.98388671875,
+      "nodos_microlote": 24789,
+      "mb_por_nodo_predicho": 0.029740406524411934
+    },
+    {
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gine",
+        "dim": 64,
+        "capas": 5,
+        "nodo_virtual": true,
+        "agregacion": "media_max"
+      },
+      "mb_por_nodo": 0.009715339596105408,
+      "pico_asignado_mb": 246.02001953125,
+      "base_mb": 17.01708984375,
+      "nodos_microlote": 24789,
+      "mb_por_nodo_predicho": 0.010520539906501886
+    },
+    {
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gine",
+        "dim": 128,
+        "capas": 5,
+        "nodo_virtual": false,
+        "agregacion": "atencion"
+      },
+      "mb_por_nodo": 0.011863944172666572,
+      "pico_asignado_mb": 300.9775390625,
+      "base_mb": 19.87060546875,
+      "nodos_microlote": 24789,
+      "mb_por_nodo_predicho": 0.015473426679807167
+    },
+    {
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gatv2",
+        "dim": 64,
+        "capas": 3,
+        "nodo_virtual": false,
+        "agregacion": "media_max"
+      },
+      "mb_por_nodo": 0.010991433242146659,
+      "pico_asignado_mb": 269.01904296875,
+      "base_mb": 16.3359375,
+      "nodos_microlote": 24789,
+      "mb_por_nodo_predicho": 0.009176991437827815
+    },
+    {
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gatv2",
+        "dim": 128,
+        "capas": 3,
+        "nodo_virtual": true,
+        "agregacion": "atencion"
+      },
+      "mb_por_nodo": 0.02087361734863606,
+      "pico_asignado_mb": 498.68994140625,
+      "base_mb": 18.841796875,
+      "nodos_microlote": 24789,
+      "mb_por_nodo_predicho": 0.02319072438825706
+    },
+    {
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gatv2",
+        "dim": 64,
+        "capas": 8,
+        "nodo_virtual": false,
+        "agregacion": "atencion"
+      },
+      "mb_por_nodo": 0.024399002404417357,
+      "pico_asignado_mb": 589.943359375,
+      "base_mb": 17.24755859375,
+      "nodos_microlote": 24789,
+      "mb_por_nodo_predicho": 0.023862884150378193
+    },
+    {
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gatv2",
+        "dim": 128,
+        "capas": 8,
+        "nodo_virtual": true,
+        "agregacion": "atencion"
+      },
+      "mb_por_nodo": 0.04744354761459224,
+      "pico_asignado_mb": 1141.2578125,
+      "base_mb": 23.99560546875,
+      "nodos_microlote": 24789,
+      "mb_por_nodo_predicho": 0.05256250981335782
+    },
+    {
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gatv2",
+        "dim": 128,
+        "capas": 5,
+        "nodo_virtual": false,
+        "agregacion": "media_max"
+      },
+      "mb_por_nodo": 0.031257889726499385,
+      "pico_asignado_mb": 742.990234375,
+      "base_mb": 20.3740234375,
+      "nodos_microlote": 24789,
+      "mb_por_nodo_predicho": 0.029737241235398344
+    },
+    {
+      "modelo": {
+        "dropout": 0.0,
+        "jumping_knowledge": true,
+        "cabezas_atencion": 4,
+        "tipo_capa": "gatv2",
+        "dim": 64,
+        "capas": 5,
+        "nodo_virtual": true,
+        "agregacion": "atencion"
+      },
+      "mb_por_nodo": 0.01622266998740614,
+      "pico_asignado_mb": 391.2509765625,
+      "base_mb": 16.9033203125,
+      "nodos_microlote": 24789,
+      "mb_por_nodo_predicho": 0.017652447184297475
+    }
+  ],
+  "caracteristicas": [
+    "constante",
+    "dim",
+    "dim_x_capas",
+    "dim_x_capas_gatv2",
+    "dim_nodo_virtual",
+    "dim_atencion"
+  ]
+}

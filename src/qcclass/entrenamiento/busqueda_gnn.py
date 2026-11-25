@@ -63,6 +63,7 @@ from qcclass.evaluacion.predicciones import aggregate_out_of_fold
 from qcclass.lineabase.configuracion import check_space, suggest
 from qcclass.modelos.gnn import GNNConfig
 from qcclass.modelos.memoria import initial_micro_nodes
+from qcclass.modelos.tiempo import TimeModel
 from qcclass.seguimiento.mlflow_cliente import flatten, tracking_uri, wait_for_mlflow
 from qcclass.seguimiento.optuna_cliente import MACHINE_ATTR, BufferedReports, fail_stale_trials
 from qcclass.seguimiento.procedencia import start_provenance
@@ -76,6 +77,15 @@ BLOCK_STEP_OFFSET = 1000
 OOF_FILE = "predicciones_oof.parquet"
 ESTIMATE_FILE = "estimacion.json"
 FINGERPRINT_ATTR = "huella"
+REASON_ATTR = "motivo"
+CEILING_REASON = "techo_tiempo"
+DEFAULT_OVERHEAD = 1.15
+
+
+class CeilingSkip(RuntimeError):
+    """A trial predicted to end after the time ceiling is not started (it is marked failed)."""
+
+
 REQUIRED = (
     "nombre",
     "experimento_mlflow",
@@ -114,6 +124,7 @@ class SearchConfig:
     raw: dict[str, Any]
     min_micro_nodes: int = DEFAULT_MIN_MICRO_NODES
     max_hours: float | None = None
+    overhead: float = DEFAULT_OVERHEAD
 
 
 def load_search_config(path: Path | str) -> SearchConfig:
@@ -156,6 +167,7 @@ def load_search_config(path: Path | str) -> SearchConfig:
         raw=data,
         min_micro_nodes=min_micro_nodes(data),
         max_hours=float(data["limite_horas"]) if data.get("limite_horas") else None,
+        overhead=float((data.get("prevision") or {}).get("sobrecoste", DEFAULT_OVERHEAD)),
     )
     try:  # every point of the space must build valid settings
         split_params(config, {k: _example(s) for k, s in space.items()})
@@ -208,6 +220,7 @@ class SearchContext:
     output: Path
     max_batches: int | None = None
     log_to_mlflow: bool = True
+    time_model: TimeModel | None = None
 
 
 def _trial_run(ctx: SearchContext, trial: optuna.Trial, directory: Path, params: dict) -> Any:
@@ -274,6 +287,26 @@ def make_objective(ctx: SearchContext, study: optuna.Study) -> Callable[[optuna.
                     if key in done.user_attrs:
                         trial.set_user_attr(key, done.user_attrs[key])
                 return float(done.value)
+        if search.max_hours is not None and ctx.time_model is not None:
+            predicted = ctx.time_model.trial_hours(
+                model,
+                epochs=training.epocas,
+                blocks=len(ctx.folds),
+                evaluate_every=training.evaluar_cada,
+                overhead=search.overhead,
+            )
+            remaining = search.max_hours - elapsed_hours(study)
+            trial.set_user_attr("horas_previstas", round(predicted, 2))
+            if predicted > remaining:
+                trial.set_user_attr(REASON_ATTR, CEILING_REASON)
+                trial.set_user_attr("horas_restantes", round(remaining, 2))
+                trial.set_user_attr(
+                    "parametros", {"modelo": model, "entrenamiento": training.as_dict()}
+                )
+                raise CeilingSkip(
+                    f"trial {trial.number}: about {predicted:.1f} h predicted, "
+                    f"{remaining:.1f} h left before the {search.max_hours:.0f} h ceiling"
+                )
         directory = run_directory(ctx.output, search.name, identity, 0).parent
         trial.set_user_attr("microlote_inicial", micro or training.presupuesto_nodos)
         run = _trial_run(ctx, trial, directory, identity)
@@ -372,6 +405,25 @@ def elapsed_hours(study: optuna.Study) -> float:
     return (max(marks) - min(starts)).total_seconds() / 3600
 
 
+def failed_trials(study: optuna.Study) -> dict[str, list[dict[str, Any]]]:
+    """Failed trials, with those not started because of the time ceiling apart."""
+    skipped, failures = [], []
+    for t in study.get_trials(deepcopy=False, states=(optuna.trial.TrialState.FAIL,)):
+        entry = {"intento": t.number, "equipo": t.user_attrs.get(MACHINE_ATTR)}
+        if t.user_attrs.get(REASON_ATTR) == CEILING_REASON:
+            skipped.append(
+                {
+                    **entry,
+                    "horas_previstas": t.user_attrs.get("horas_previstas"),
+                    "horas_restantes": t.user_attrs.get("horas_restantes"),
+                    "parametros": t.user_attrs.get("parametros", t.params),
+                }
+            )
+        else:
+            failures.append({**entry, "parametros": t.params})
+    return {"omitidos_por_techo": skipped, "fallos": failures}
+
+
 def estimate(study: optuna.Study, search: SearchConfig) -> dict[str, Any]:
     """Real time per finished trial and projection of the remaining time."""
     finished = [
@@ -405,6 +457,7 @@ def estimate(study: optuna.Study, search: SearchConfig) -> dict[str, Any]:
         "limite_horas": search.limit_hours,
         "horas_desde_el_primer_intento": round(elapsed_hours(study), 2),
         "techo_horas": search.max_hours,
+        **failed_trials(study),
         "supera_limite": bool(
             done >= search.estimate_after and total is not None and total > search.limit_hours
         ),
@@ -446,11 +499,18 @@ def run_search(
         output=output,
         max_batches=max_batches,
         log_to_mlflow=log_to_mlflow,
+        time_model=TimeModel.load(config.rutas.resultados, provenance.machine),
     )
+    if ctx.time_model is None and search.max_hours is not None:
+        logger.warning(
+            "no calibration of %s: trials start without a duration check", provenance.machine
+        )
     study = optuna.create_study(
         study_name=search.name,
         storage=storage,
-        sampler=optuna.samplers.TPESampler(seed=derive_seed(search.seed, search.name, "tpe")),
+        sampler=optuna.samplers.TPESampler(
+            seed=derive_seed(search.seed, search.name, "tpe"), constant_liar=True
+        ),
         pruner=optuna.pruners.MedianPruner(n_startup_trials=search.pruning_startup),
         direction="maximize",
         load_if_exists=True,
@@ -475,6 +535,12 @@ def run_search(
             figures["horas_consumidas"],
             figures["horas_restantes_estimadas"],
         )
+        if trial.user_attrs.get(REASON_ATTR) == CEILING_REASON:
+            logger.warning(
+                "trial %d not started (it would end after the ceiling): this worker stops",
+                trial.number,
+            )
+            study.stop()
         if search.max_hours is not None and elapsed_hours(study) >= search.max_hours:
             logger.warning(
                 "search %s: %.0f h reached; no more trials are started",
@@ -510,7 +576,7 @@ def run_search(
                 optuna.study.MaxTrialsCallback(search.trials, states=FINISHED),
                 after_trial,
             ],
-            catch=(torch.OutOfMemoryError,),
+            catch=(torch.OutOfMemoryError, CeilingSkip),
             gc_after_trial=True,
         )
     logger.info(
