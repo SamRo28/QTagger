@@ -33,7 +33,7 @@ fijos:
   entrenamiento:
     calentamiento: 0.05
     presupuesto_nodos: 100000
-    precision_mixta: true
+    precision_mixta: false              # float32: bfloat16 lost 1.1 points and was slower (DECISIONES)
     tipo_precision_mixta: bfloat16   # float16 overflowed (NaN) in the first search trial
     variante_aristas: completo
     evaluar_cada: 2
