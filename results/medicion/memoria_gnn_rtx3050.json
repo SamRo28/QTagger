@@ -1,15 +1,15 @@
 {
   "machine": "rtx3050",
   "coefficients": [
-    0.00036545581029758667,
-    0.0,
-    2.360620448360872e-05,
-    2.2287210243111215e-05,
-    4.064216658514858e-05,
-    0.0
+    0.0011762891871994873,
+    1.3082257178632036e-05,
+    3.094212762865297e-05,
+    3.3558252227515166e-05,
+    3.2663972227766497e-06,
+    6.663446181439848e-06
   ],
   "useful_mb": 3300.0,
-  "margin": 1.15,
+  "margin": 1.35,
   "measurements": [
     {
       "modelo": {
@@ -22,11 +22,11 @@
         "nodo_virtual": false,
         "agregacion": "media_max"
       },
-      "mb_por_nodo": 0.004024155001009885,
-      "pico_asignado_mb": 107.232421875,
-      "base_mb": 12.91748046875,
+      "mb_por_nodo": 0.007278365515991826,
+      "pico_asignado_mb": 184.8837890625,
+      "base_mb": 12.91650390625,
       "nodos_microlote": 24789,
-      "mb_por_nodo_predicho": 0.004897847071150461
+      "mb_por_nodo_predicho": 0.007954442151333308
     },
     {
       "modelo": {
@@ -39,11 +39,11 @@
         "nodo_virtual": false,
         "agregacion": "media_max"
       },
-      "mb_por_nodo": 0.007421958538280582,
-      "pico_asignado_mb": 193.71044921875,
-      "base_mb": 18.81982421875,
+      "mb_por_nodo": 0.014077314121756487,
+      "pico_asignado_mb": 354.48583984375,
+      "base_mb": 18.81884765625,
       "nodos_microlote": 24789,
-      "mb_por_nodo_predicho": 0.009430238332003335
+      "mb_por_nodo_predicho": 0.014732595115467128
     },
     {
       "modelo": {
@@ -56,11 +56,11 @@
         "nodo_virtual": false,
         "agregacion": "media_max"
       },
-      "mb_por_nodo": 0.0094505000415835,
-      "pico_asignado_mb": 240.4609375,
-      "base_mb": 17.35693359375,
+      "mb_por_nodo": 0.017953606366136774,
+      "pico_asignado_mb": 443.19873046875,
+      "base_mb": 17.35595703125,
       "nodos_microlote": 24789,
-      "mb_por_nodo_predicho": 0.012451832505905251
+      "mb_por_nodo_predicho": 0.017855922992502257
     },
     {
       "modelo": {
@@ -73,11 +73,11 @@
         "nodo_virtual": true,
         "agregacion": "atencion"
       },
-      "mb_por_nodo": 0.030076867284775686,
-      "pico_asignado_mb": 733.0078125,
-      "base_mb": 23.98388671875,
+      "mb_por_nodo": 0.03655080556892168,
+      "pico_asignado_mb": 894.65380859375,
+      "base_mb": 23.98291015625,
       "nodos_microlote": 24789,
-      "mb_por_nodo_predicho": 0.029740406524411934
+      "mb_por_nodo_predicho": 0.03580657675354473
     },
     {
       "modelo": {
@@ -90,11 +90,11 @@
         "nodo_virtual": true,
         "agregacion": "media_max"
       },
-      "mb_por_nodo": 0.009715339596105408,
-      "pico_asignado_mb": 246.02001953125,
-      "base_mb": 17.01708984375,
+      "mb_por_nodo": 0.011602724610303204,
+      "pico_asignado_mb": 293.34130859375,
+      "base_mb": 17.01611328125,
       "nodos_microlote": 24789,
-      "mb_por_nodo_predicho": 0.010520539906501886
+      "mb_por_nodo_predicho": 0.012124083910058593
     },
     {
       "modelo": {
@@ -107,11 +107,11 @@
         "nodo_virtual": false,
         "agregacion": "atencion"
       },
-      "mb_por_nodo": 0.011863944172666572,
-      "pico_asignado_mb": 300.9775390625,
-      "base_mb": 19.87060546875,
+      "mb_por_nodo": 0.02309445933282245,
+      "pico_asignado_mb": 570.27783203125,
+      "base_mb": 19.86962890625,
       "nodos_microlote": 24789,
-      "mb_por_nodo_predicho": 0.015473426679807167
+      "mb_por_nodo_predicho": 0.02350670089962659
     },
     {
       "modelo": {
@@ -124,11 +124,11 @@
         "nodo_virtual": false,
         "agregacion": "media_max"
       },
-      "mb_por_nodo": 0.010991433242146659,
-      "pico_asignado_mb": 269.01904296875,
-      "base_mb": 16.3359375,
+      "mb_por_nodo": 0.01507153568606834,
+      "pico_asignado_mb": 360.80419921875,
+      "base_mb": 16.3349609375,
       "nodos_microlote": 24789,
-      "mb_por_nodo_predicho": 0.009176991437827815
+      "mb_por_nodo_predicho": 0.01439762657901622
     },
     {
       "modelo": {
@@ -141,11 +141,11 @@
         "nodo_virtual": true,
         "agregacion": "atencion"
       },
-      "mb_por_nodo": 0.02087361734863606,
-      "pico_asignado_mb": 498.68994140625,
-      "base_mb": 18.841796875,
+      "mb_por_nodo": 0.029392363895720464,
+      "pico_asignado_mb": 692.09033203125,
+      "base_mb": 18.8408203125,
       "nodos_microlote": 24789,
-      "mb_por_nodo_predicho": 0.02319072438825706
+      "mb_por_nodo_predicho": 0.028889983926572663
     },
     {
       "modelo": {
@@ -158,11 +158,11 @@
         "nodo_virtual": false,
         "agregacion": "atencion"
       },
-      "mb_por_nodo": 0.024399002404417357,
-      "pico_asignado_mb": 589.943359375,
-      "base_mb": 17.24755859375,
+      "mb_por_nodo": 0.03576733252245509,
+      "pico_asignado_mb": 841.17138671875,
+      "base_mb": 17.24658203125,
       "nodos_microlote": 24789,
-      "mb_por_nodo_predicho": 0.023862884150378193
+      "mb_por_nodo_predicho": 0.03546420868860217
     },
     {
       "modelo": {
@@ -175,11 +175,11 @@
         "nodo_virtual": true,
         "agregacion": "atencion"
       },
-      "mb_por_nodo": 0.04744354761459224,
-      "pico_asignado_mb": 1141.2578125,
-      "base_mb": 23.99560546875,
+      "mb_por_nodo": 0.06912293808959462,
+      "pico_asignado_mb": 1620.3310546875,
+      "base_mb": 23.99462890625,
       "nodos_microlote": 24789,
-      "mb_por_nodo_predicho": 0.05256250981335782
+      "mb_por_nodo_predicho": 0.07017022703452026
     },
     {
       "modelo": {
@@ -192,11 +192,11 @@
         "nodo_virtual": false,
         "agregacion": "media_max"
       },
-      "mb_por_nodo": 0.031257889726499385,
-      "pico_asignado_mb": 742.990234375,
-      "base_mb": 20.3740234375,
+      "mb_por_nodo": 0.044999263934927765,
+      "pico_asignado_mb": 1051.82958984375,
+      "base_mb": 20.373046875,
       "nodos_microlote": 24789,
-      "mb_por_nodo_predicho": 0.029737241235398344
+      "mb_por_nodo_predicho": 0.044131061214012
     },
     {
       "modelo": {
@@ -209,11 +209,11 @@
         "nodo_virtual": true,
         "agregacion": "atencion"
       },
-      "mb_por_nodo": 0.01622266998740614,
-      "pico_asignado_mb": 391.2509765625,
-      "base_mb": 16.9033203125,
+      "mb_por_nodo": 0.023411904799032886,
+      "pico_asignado_mb": 553.65380859375,
+      "base_mb": 16.90234375,
       "nodos_microlote": 24789,
-      "mb_por_nodo_predicho": 0.017652447184297475
+      "mb_por_nodo_predicho": 0.0232891851784756
     }
   ],
   "caracteristicas": [

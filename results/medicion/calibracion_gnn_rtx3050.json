@@ -15,11 +15,11 @@
         "nodo_virtual": false,
         "agregacion": "media_max"
       },
-      "mb_por_nodo": 0.004024155001009885,
-      "pico_asignado_mb": 107.232421875,
-      "base_mb": 12.91748046875,
+      "mb_por_nodo": 0.007278365515991826,
+      "pico_asignado_mb": 184.8837890625,
+      "base_mb": 12.91650390625,
       "nodos_microlote": 24789,
-      "mb_por_nodo_predicho": 0.004897847071150461
+      "mb_por_nodo_predicho": 0.007954442151333308
     },
     {
       "modelo": {
@@ -32,11 +32,11 @@
         "nodo_virtual": false,
         "agregacion": "media_max"
       },
-      "mb_por_nodo": 0.007421958538280582,
-      "pico_asignado_mb": 193.71044921875,
-      "base_mb": 18.81982421875,
+      "mb_por_nodo": 0.014077314121756487,
+      "pico_asignado_mb": 354.48583984375,
+      "base_mb": 18.81884765625,
       "nodos_microlote": 24789,
-      "mb_por_nodo_predicho": 0.009430238332003335
+      "mb_por_nodo_predicho": 0.014732595115467128
     },
     {
       "modelo": {
@@ -49,11 +49,11 @@
         "nodo_virtual": false,
         "agregacion": "media_max"
       },
-      "mb_por_nodo": 0.0094505000415835,
-      "pico_asignado_mb": 240.4609375,
-      "base_mb": 17.35693359375,
+      "mb_por_nodo": 0.017953606366136774,
+      "pico_asignado_mb": 443.19873046875,
+      "base_mb": 17.35595703125,
       "nodos_microlote": 24789,
-      "mb_por_nodo_predicho": 0.012451832505905251
+      "mb_por_nodo_predicho": 0.017855922992502257
     },
     {
       "modelo": {
@@ -66,11 +66,11 @@
         "nodo_virtual": true,
         "agregacion": "atencion"
       },
-      "mb_por_nodo": 0.030076867284775686,
-      "pico_asignado_mb": 733.0078125,
-      "base_mb": 23.98388671875,
+      "mb_por_nodo": 0.03655080556892168,
+      "pico_asignado_mb": 894.65380859375,
+      "base_mb": 23.98291015625,
       "nodos_microlote": 24789,
-      "mb_por_nodo_predicho": 0.029740406524411934
+      "mb_por_nodo_predicho": 0.03580657675354473
     },
     {
       "modelo": {
@@ -83,11 +83,11 @@
         "nodo_virtual": true,
         "agregacion": "media_max"
       },
-      "mb_por_nodo": 0.009715339596105408,
-      "pico_asignado_mb": 246.02001953125,
-      "base_mb": 17.01708984375,
+      "mb_por_nodo": 0.011602724610303204,
+      "pico_asignado_mb": 293.34130859375,
+      "base_mb": 17.01611328125,
       "nodos_microlote": 24789,
-      "mb_por_nodo_predicho": 0.010520539906501886
+      "mb_por_nodo_predicho": 0.012124083910058593
     },
     {
       "modelo": {
@@ -100,11 +100,11 @@
         "nodo_virtual": false,
         "agregacion": "atencion"
       },
-      "mb_por_nodo": 0.011863944172666572,
-      "pico_asignado_mb": 300.9775390625,
-      "base_mb": 19.87060546875,
+      "mb_por_nodo": 0.02309445933282245,
+      "pico_asignado_mb": 570.27783203125,
+      "base_mb": 19.86962890625,
       "nodos_microlote": 24789,
-      "mb_por_nodo_predicho": 0.015473426679807167
+      "mb_por_nodo_predicho": 0.02350670089962659
     },
     {
       "modelo": {
@@ -117,11 +117,11 @@
         "nodo_virtual": false,
         "agregacion": "media_max"
       },
-      "mb_por_nodo": 0.010991433242146659,
-      "pico_asignado_mb": 269.01904296875,
-      "base_mb": 16.3359375,
+      "mb_por_nodo": 0.01507153568606834,
+      "pico_asignado_mb": 360.80419921875,
+      "base_mb": 16.3349609375,
       "nodos_microlote": 24789,
-      "mb_por_nodo_predicho": 0.009176991437827815
+      "mb_por_nodo_predicho": 0.01439762657901622
     },
     {
       "modelo": {
@@ -134,11 +134,11 @@
         "nodo_virtual": true,
         "agregacion": "atencion"
       },
-      "mb_por_nodo": 0.02087361734863606,
-      "pico_asignado_mb": 498.68994140625,
-      "base_mb": 18.841796875,
+      "mb_por_nodo": 0.029392363895720464,
+      "pico_asignado_mb": 692.09033203125,
+      "base_mb": 18.8408203125,
       "nodos_microlote": 24789,
-      "mb_por_nodo_predicho": 0.02319072438825706
+      "mb_por_nodo_predicho": 0.028889983926572663
     },
     {
       "modelo": {
@@ -151,11 +151,11 @@
         "nodo_virtual": false,
         "agregacion": "atencion"
       },
-      "mb_por_nodo": 0.024399002404417357,
-      "pico_asignado_mb": 589.943359375,
-      "base_mb": 17.24755859375,
+      "mb_por_nodo": 0.03576733252245509,
+      "pico_asignado_mb": 841.17138671875,
+      "base_mb": 17.24658203125,
       "nodos_microlote": 24789,
-      "mb_por_nodo_predicho": 0.023862884150378193
+      "mb_por_nodo_predicho": 0.03546420868860217
     },
     {
       "modelo": {
@@ -168,11 +168,11 @@
         "nodo_virtual": true,
         "agregacion": "atencion"
       },
-      "mb_por_nodo": 0.04744354761459224,
-      "pico_asignado_mb": 1141.2578125,
-      "base_mb": 23.99560546875,
+      "mb_por_nodo": 0.06912293808959462,
+      "pico_asignado_mb": 1620.3310546875,
+      "base_mb": 23.99462890625,
       "nodos_microlote": 24789,
-      "mb_por_nodo_predicho": 0.05256250981335782
+      "mb_por_nodo_predicho": 0.07017022703452026
     },
     {
       "modelo": {
@@ -185,11 +185,11 @@
         "nodo_virtual": false,
         "agregacion": "media_max"
       },
-      "mb_por_nodo": 0.031257889726499385,
-      "pico_asignado_mb": 742.990234375,
-      "base_mb": 20.3740234375,
+      "mb_por_nodo": 0.044999263934927765,
+      "pico_asignado_mb": 1051.82958984375,
+      "base_mb": 20.373046875,
       "nodos_microlote": 24789,
-      "mb_por_nodo_predicho": 0.029737241235398344
+      "mb_por_nodo_predicho": 0.044131061214012
     },
     {
       "modelo": {
@@ -202,21 +202,22 @@
         "nodo_virtual": true,
         "agregacion": "atencion"
       },
-      "mb_por_nodo": 0.01622266998740614,
-      "pico_asignado_mb": 391.2509765625,
-      "base_mb": 16.9033203125,
+      "mb_por_nodo": 0.023411904799032886,
+      "pico_asignado_mb": 553.65380859375,
+      "base_mb": 16.90234375,
       "nodos_microlote": 24789,
-      "mb_por_nodo_predicho": 0.017652447184297475
+      "mb_por_nodo_predicho": 0.0232891851784756
     }
   ],
+  "dispositivo": "cuda",
   "modelo_memoria": "/home/samue/QTagger/results/medicion/memoria_gnn_rtx3050.json",
   "coeficientes": {
-    "constante": 0.00036545581029758667,
-    "dim": 0.0,
-    "dim_x_capas": 2.360620448360872e-05,
-    "dim_x_capas_gatv2": 2.2287210243111215e-05,
-    "dim_nodo_virtual": 4.064216658514858e-05,
-    "dim_atencion": 0.0
+    "constante": 0.0011762891871994873,
+    "dim": 1.3082257178632036e-05,
+    "dim_x_capas": 3.094212762865297e-05,
+    "dim_x_capas_gatv2": 3.3558252227515166e-05,
+    "dim_nodo_virtual": 3.2663972227766497e-06,
+    "dim_atencion": 6.663446181439848e-06
   },
   "estimaciones": [
     {
@@ -233,43 +234,47 @@
       },
       "microlote_inicial": 100000,
       "microlote_nodos": 100000,
-      "segundos_entrenamiento_epoca": 3.6730986861666852,
-      "segundos_evaluacion": 0.41599613794501483,
+      "segundos_entrenamiento_epoca": 4.457862220810087,
+      "segundos_evaluacion": 0.619125600407883,
       "horas_por_intento": {
-        "50": 0.2579651597195268,
-        "100": 0.5159303194390537,
-        "150": 0.7738954791585805
+        "50": 0.3138732486701996,
+        "100": 0.6277464973403992
       },
-      "pico_asignado_mb": 488.93505859375,
-      "pico_reservado_mb": 578.0,
+      "pico_asignado_mb": 798.00244140625,
+      "pico_reservado_mb": 910.0,
       "desborda": false,
+      "dispositivo": "cuda",
+      "precision_mixta": "float32",
+      "hilos_cpu": null,
       "parametros": 57882
     },
     {
-      "nombre": "gine_128x8",
+      "nombre": "gine_128x6",
       "modelo": {
         "dropout": 0.0,
         "jumping_knowledge": true,
         "cabezas_atencion": 4,
         "tipo_capa": "gine",
         "dim": 128,
-        "capas": 8,
+        "capas": 6,
         "nodo_virtual": true,
         "agregacion": "atencion"
       },
-      "microlote_inicial": 50000,
-      "microlote_nodos": 50000,
-      "segundos_entrenamiento_epoca": 30.643558331154676,
-      "segundos_evaluacion": 2.5082076319911075,
+      "microlote_inicial": 100000,
+      "microlote_nodos": 100000,
+      "segundos_entrenamiento_epoca": 18.69431367055742,
+      "segundos_evaluacion": 2.0914882508271444,
       "horas_por_intento": {
-        "50": 2.1454429926634577,
-        "100": 4.2908859853269155,
-        "150": 6.436328977990373
+        "50": 1.3127404510861205,
+        "100": 2.625480902172241
       },
-      "pico_asignado_mb": 1676.57177734375,
-      "pico_reservado_mb": 1934.0,
-      "desborda": false,
-      "parametros": 559899
+      "pico_asignado_mb": 2888.08203125,
+      "pico_reservado_mb": 3480.0,
+      "desborda": true,
+      "dispositivo": "cuda",
+      "precision_mixta": "float32",
+      "hilos_cpu": null,
+      "parametros": 425243
     },
     {
       "nombre": "gatv2_64x3",
@@ -285,69 +290,75 @@
       },
       "microlote_inicial": 100000,
       "microlote_nodos": 100000,
-      "segundos_entrenamiento_epoca": 7.344317091235203,
-      "segundos_evaluacion": 0.8861553338410574,
+      "segundos_entrenamiento_epoca": 8.15026384670448,
+      "segundos_evaluacion": 1.0502125120906074,
       "horas_por_intento": {
-        "50": 0.5161758767096741,
-        "100": 1.0323517534193483,
-        "150": 1.5485276301290227
+        "50": 0.5732836873551069,
+        "100": 1.1465673747102139
       },
-      "pico_asignado_mb": 1225.90576171875,
-      "pico_reservado_mb": 1362.0,
+      "pico_asignado_mb": 1587.330078125,
+      "pico_reservado_mb": 1714.0,
       "desborda": false,
+      "dispositivo": "cuda",
+      "precision_mixta": "float32",
+      "hilos_cpu": null,
       "parametros": 58074
     },
     {
-      "nombre": "gatv2_128x8",
+      "nombre": "gatv2_128x6",
       "modelo": {
         "dropout": 0.0,
         "jumping_knowledge": true,
         "cabezas_atencion": 4,
         "tipo_capa": "gatv2",
         "dim": 128,
-        "capas": 8,
+        "capas": 6,
         "nodo_virtual": true,
         "agregacion": "atencion"
       },
       "microlote_inicial": 50000,
       "microlote_nodos": 50000,
-      "segundos_entrenamiento_epoca": 46.23189288856776,
-      "segundos_evaluacion": 4.137960011843162,
+      "segundos_entrenamiento_epoca": 40.243515603142626,
+      "segundos_evaluacion": 4.0335582170699045,
       "horas_por_intento": {
-        "50": 3.239283950677227,
-        "100": 6.478567901354454,
-        "150": 9.717851852031682
+        "50": 2.822699404503446,
+        "100": 5.645398809006892
       },
-      "pico_asignado_mb": 2517.77490234375,
-      "pico_reservado_mb": 2814.0,
+      "pico_asignado_mb": 2746.6533203125,
+      "pico_reservado_mb": 3068.0,
       "desborda": false,
-      "parametros": 560923
+      "dispositivo": "cuda",
+      "precision_mixta": "float32",
+      "hilos_cpu": null,
+      "parametros": 426011
     },
     {
-      "nombre": "media_gine_128x5",
+      "nombre": "media_gine_128x4",
       "modelo": {
         "dropout": 0.0,
         "jumping_knowledge": true,
         "cabezas_atencion": 4,
         "tipo_capa": "gine",
         "dim": 128,
-        "capas": 5,
+        "capas": 4,
         "nodo_virtual": true,
         "agregacion": "media_max"
       },
       "microlote_inicial": 100000,
       "microlote_nodos": 100000,
-      "segundos_entrenamiento_epoca": 14.46620060323064,
-      "segundos_evaluacion": 1.5826554906794166,
+      "segundos_entrenamiento_epoca": 13.003004879956311,
+      "segundos_evaluacion": 1.4200491025616113,
       "horas_por_intento": {
-        "50": 1.015587927242957,
-        "100": 2.031175854485914,
-        "150": 3.046763781728871
+        "50": 0.9128479020980884,
+        "100": 1.8256958041961768
       },
-      "pico_asignado_mb": 2038.27392578125,
-      "pico_reservado_mb": 2350.0,
+      "pico_asignado_mb": 2001.57958984375,
+      "pico_reservado_mb": 2440.0,
       "desborda": false,
-      "parametros": 390554
+      "dispositivo": "cuda",
+      "precision_mixta": "float32",
+      "hilos_cpu": null,
+      "parametros": 323226
     },
     {
       "nombre": "media_gatv2_64x5",
@@ -363,19 +374,21 @@
       },
       "microlote_inicial": 100000,
       "microlote_nodos": 100000,
-      "segundos_entrenamiento_epoca": 10.951581838369474,
-      "segundos_evaluacion": 1.2398935368621156,
+      "segundos_entrenamiento_epoca": 12.663887806234692,
+      "segundos_evaluacion": 1.6889177474953725,
       "horas_por_intento": {
-        "50": 0.7691368883372004,
-        "100": 1.5382737766744008,
-        "150": 2.3074106650116013
+        "50": 0.8911652486794603,
+        "100": 1.7823304973589207
       },
-      "pico_asignado_mb": 1734.47265625,
-      "pico_reservado_mb": 1884.0,
+      "pico_asignado_mb": 2365.56494140625,
+      "pico_reservado_mb": 2514.0,
       "desborda": false,
+      "dispositivo": "cuda",
+      "precision_mixta": "float32",
+      "hilos_cpu": null,
       "parametros": 76059
     }
   ],
   "version_dataset": "dataset-v1.1",
-  "git_commit": "4f76393bdf673e2eebc7992dc51d282731b5b5c7"
+  "git_commit": "8a43463b0fad80e126cbdc685794e7d84e539284"
 }

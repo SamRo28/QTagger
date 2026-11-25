@@ -26,7 +26,7 @@ memoria:
   microlote_medida: 25000              # micro-batch of the memory measurements
   lotes: 4                             # micro-batches measured per configuration
   memoria_util_mb: 3300                # useful memory of the GPU
-  margen: 1.15                         # predicted peak x margin must stay below it
+  margen: 1.35                         # reserved/allocated reached 1.22 in float32, plus 10 %
   microlote_minimo: 20000
 
 tiempo:
