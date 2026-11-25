@@ -50,9 +50,15 @@ from qcclass.entrenamiento.gnn import (
     hyperparameter_fingerprint,
     resolve_training_device,
     run_directory,
+    run_identity,
     train_block,
 )
-from qcclass.entrenamiento.gnn_experimento import OUTPUT_DIR, loading_workers, min_micro_nodes
+from qcclass.entrenamiento.gnn_experimento import (
+    OUTPUT_DIR,
+    configure_cpu_threads,
+    loading_workers,
+    min_micro_nodes,
+)
 from qcclass.evaluacion.predicciones import aggregate_out_of_fold
 from qcclass.lineabase.configuracion import check_space, suggest
 from qcclass.modelos.gnn import GNNConfig
@@ -107,6 +113,7 @@ class SearchConfig:
     fixed_training: dict[str, Any]
     raw: dict[str, Any]
     min_micro_nodes: int = DEFAULT_MIN_MICRO_NODES
+    max_hours: float | None = None
 
 
 def load_search_config(path: Path | str) -> SearchConfig:
@@ -148,6 +155,7 @@ def load_search_config(path: Path | str) -> SearchConfig:
         fixed_training=fixed_training,
         raw=data,
         min_micro_nodes=min_micro_nodes(data),
+        max_hours=float(data["limite_horas"]) if data.get("limite_horas") else None,
     )
     try:  # every point of the space must build valid settings
         split_params(config, {k: _example(s) for k, s in space.items()})
@@ -214,7 +222,14 @@ def _trial_run(ctx: SearchContext, trial: optuna.Trial, directory: Path, params:
     run.set_tags({"intento": trial.number})
     if run.run_id is None:
         run.log_params(
-            flatten({**params, "dispositivo": ctx.device, "procesos_carga": ctx.workers})
+            flatten(
+                {
+                    **params,
+                    "equipo": ctx.provenance.machine,
+                    "procesos_carga": ctx.workers,
+                    "hilos_cpu": torch.get_num_threads(),
+                }
+            )
         )
         run.log_dict(ctx.search.raw, "configuracion.json")
         run.log_dict(ctx.provenance.machine_description, "equipo.json")
@@ -236,18 +251,6 @@ def make_objective(ctx: SearchContext, study: optuna.Study) -> Callable[[optuna.
         trial.set_user_attr(MACHINE_ATTR, ctx.provenance.machine)
         point = suggest(trial, search.space)
         model, training = split_params(search, point)
-        identity = {"modelo": model, "entrenamiento": training.as_dict(), "semilla": search.seed}
-        fingerprint = hyperparameter_fingerprint(identity)
-        trial.set_user_attr(FINGERPRINT_ATTR, fingerprint)
-        for done in study.get_trials(deepcopy=False, states=(optuna.trial.TrialState.COMPLETE,)):
-            if done.user_attrs.get(FINGERPRINT_ATTR) == fingerprint:
-                logger.info("trial %d repeats trial %d: not trained", trial.number, done.number)
-                trial.set_user_attr("repite_intento", done.number)
-                for key in ("f1_bloques", "f1_familia_bloques", "f1_familia_media"):
-                    if key in done.user_attrs:
-                        trial.set_user_attr(key, done.user_attrs[key])
-                return float(done.value)
-        directory = run_directory(ctx.output, search.name, identity, 0).parent
         micro = (
             None
             if ctx.device != "cuda"
@@ -260,6 +263,18 @@ def make_objective(ctx: SearchContext, study: optuna.Study) -> Callable[[optuna.
                 ctx.device,
             )
         )
+        identity = run_identity(model, training, search.seed, device=ctx.device, micro_nodes=micro)
+        fingerprint = hyperparameter_fingerprint(identity)
+        trial.set_user_attr(FINGERPRINT_ATTR, fingerprint)
+        for done in study.get_trials(deepcopy=False, states=(optuna.trial.TrialState.COMPLETE,)):
+            if done.user_attrs.get(FINGERPRINT_ATTR) == fingerprint:
+                logger.info("trial %d repeats trial %d: not trained", trial.number, done.number)
+                trial.set_user_attr("repite_intento", done.number)
+                for key in ("f1_bloques", "f1_familia_bloques", "f1_familia_media"):
+                    if key in done.user_attrs:
+                        trial.set_user_attr(key, done.user_attrs[key])
+                return float(done.value)
+        directory = run_directory(ctx.output, search.name, identity, 0).parent
         trial.set_user_attr("microlote_inicial", micro or training.presupuesto_nodos)
         run = _trial_run(ctx, trial, directory, identity)
         reports = BufferedReports(trial, ctx.storage)
@@ -346,6 +361,17 @@ def make_objective(ctx: SearchContext, study: optuna.Study) -> Callable[[optuna.
     return objective
 
 
+def elapsed_hours(study: optuna.Study) -> float:
+    """Hours from the first trial start to the last start or end recorded in the storage
+    (the storage's clock only, so the workers' clocks and time zones do not matter)."""
+    trials = study.get_trials(deepcopy=False)
+    starts = [t.datetime_start for t in trials if t.datetime_start]
+    if not starts:
+        return 0.0
+    marks = starts + [t.datetime_complete for t in trials if t.datetime_complete]
+    return (max(marks) - min(starts)).total_seconds() / 3600
+
+
 def estimate(study: optuna.Study, search: SearchConfig) -> dict[str, Any]:
     """Real time per finished trial and projection of the remaining time."""
     finished = [
@@ -377,6 +403,8 @@ def estimate(study: optuna.Study, search: SearchConfig) -> dict[str, Any]:
         "horas_restantes_estimadas": None if projected is None else round(projected, 1),
         "horas_totales_estimadas": None if total is None else round(total, 1),
         "limite_horas": search.limit_hours,
+        "horas_desde_el_primer_intento": round(elapsed_hours(study), 2),
+        "techo_horas": search.max_hours,
         "supera_limite": bool(
             done >= search.estimate_after and total is not None and total > search.limit_hours
         ),
@@ -394,8 +422,10 @@ def run_search(
     max_batches: int | None = None,
     log_to_mlflow: bool = True,
 ) -> optuna.Study:
-    """Run (or resume) the search until it has ``intentos`` finished trials."""
+    """Run (or resume) the search until it has ``intentos`` finished trials or ``limite_horas``
+    have passed since its first trial (no new trial starts after that; one in progress ends)."""
     device = resolve_training_device(device)
+    configure_cpu_threads(device)
     provenance = start_provenance(config, search.name, device=device)
     if log_to_mlflow:
         wait_for_mlflow(tracking_uri())
@@ -445,6 +475,13 @@ def run_search(
             figures["horas_consumidas"],
             figures["horas_restantes_estimadas"],
         )
+        if search.max_hours is not None and elapsed_hours(study) >= search.max_hours:
+            logger.warning(
+                "search %s: %.0f h reached; no more trials are started",
+                search.name,
+                search.max_hours,
+            )
+            study.stop()
         if figures["supera_limite"] and not warned:
             warned = True
             logger.warning(
@@ -457,6 +494,11 @@ def run_search(
     finished = len(study.get_trials(deepcopy=False, states=FINISHED))
     remaining = search.trials - finished
     started = time.perf_counter()
+    if search.max_hours is not None and elapsed_hours(study) >= search.max_hours:
+        logger.warning(
+            "search %s: the %.0f h ceiling was already reached", search.name, search.max_hours
+        )
+        remaining = 0
     if remaining > 0:
         logger.info(
             "%s: %d trials finished, running up to %d more", search.name, finished, remaining

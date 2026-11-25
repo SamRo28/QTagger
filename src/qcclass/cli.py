@@ -780,6 +780,9 @@ def calibrar_gnn(
     experimento: Annotated[Path, typer.Option(help="Calibration configuration.")] = Path(
         "configs/experimentos/gnn_calibracion.yaml"
     ),
+    dispositivo: Annotated[
+        str, typer.Option(help="cuda (memory model and time) or cpu (time only).")
+    ] = "cuda",
 ) -> None:
     """Phase 12: GPU memory model and real time per configuration of the GNN on this machine
     (CUDA; train part and held-out block of one cross-validation block, never the test set)."""
@@ -795,7 +798,7 @@ def calibrar_gnn(
     split_config = _load_splits_config(splits, dataset)
     try:
         load_env(dataset.rutas.raiz)
-        report, path = run_calibration(dataset, split_config, experimento)
+        report, path = run_calibration(dataset, split_config, experimento, device=dispositivo)
     except (ConfigError, ServerConnectionError, VersionError, ValueError) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
@@ -815,8 +818,9 @@ def calibrar_gnn(
             typer.echo(f"{e['nombre']}: {e['error']} (micro-batch {e['microlote_nodos']})")
             continue
         hours = ", ".join(f"{k} ep {v:.1f} h" for k, v in e["horas_por_intento"].items())
+        where = "GPU" if e["hilos_cpu"] is None else f"CPU {e['hilos_cpu']} threads"
         typer.echo(
-            f"{e['nombre']}: micro-batch {e['microlote_nodos']}, "
+            f"{e['nombre']} ({where}): micro-batch {e['microlote_nodos']}, "
             f"{e['segundos_entrenamiento_epoca']:.1f} s/epoch + {e['segundos_evaluacion']:.1f} s "
             f"per evaluation; GPU {e['pico_asignado_mb']:.0f} MB allocated, "
             f"{e['pico_reservado_mb']:.0f} reserved{' SPILLS' if e['desborda'] else ''}; "

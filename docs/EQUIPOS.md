@@ -72,6 +72,7 @@ Variables opcionales de cualquier cliente (valores por defecto entre paréntesis
 
 ```bash
 QCCLASS_PROCESOS_CARGA=4              # procesos de carga de datos de la GNN (4); 0 = ninguno
+QCCLASS_NUCLEOS_LIBRES=0              # en CPU, núcleos que no usa el entrenamiento (0); m1pro: 2
 QCCLASS_REINTENTO_ESPERA_INICIAL=1    # primera espera ante un corte del servidor, en s (1)
 QCCLASS_REINTENTO_ESPERA_MAXIMA=60    # espera máxima entre dos intentos, en s (60)
 QCCLASS_REINTENTO_TOTAL=600           # tiempo total de reintentos antes de fallar, en s (600)
@@ -137,13 +138,12 @@ rsync -av --exclude raw/ --exclude canonical/ --exclude logs/ \
 qcclass verificar
 ```
 
-`m1pro` (no entrena: solo lo que cubren las huellas), desde `/Users/samuel/Documents/QTagger`:
+`m1pro` (desde la fase 12 también entrena en CPU, así que copia lo mismo que el `rtx3050`),
+desde `/Users/samuel/Documents/QTagger`:
 
 ```bash
-mkdir -p data/graphs
-rsync -av samuel@192.168.1.136:Developer/personal/QTagger/data/metadata.csv data/
-rsync -av samuel@192.168.1.136:Developer/personal/QTagger/data/splits data/
-rsync -av samuel@192.168.1.136:Developer/personal/QTagger/data/graphs/etiquetas.json data/graphs/
+rsync -av --exclude raw/ --exclude canonical/ --exclude logs/ \
+  samuel@192.168.1.136:Developer/personal/QTagger/data/ data/
 qcclass verificar
 ```
 

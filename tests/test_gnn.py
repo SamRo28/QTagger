@@ -575,3 +575,83 @@ def test_memory_model_fit_and_micro_batch_choice(tmp_path: Path) -> None:
     assert initial_micro_nodes(tmp_path, "rtx", big, 100_000, 20_000, "cuda") == chosen
     assert initial_micro_nodes(tmp_path, "rtx", big, 100_000, 20_000, "cpu") is None
     assert initial_micro_nodes(tmp_path, "otro", big, 100_000, 20_000, "cuda") is None
+
+
+def test_fingerprint_covers_configuration_and_code(synthetic, tmp_path: Path, monkeypatch) -> None:
+    """Micro-batch, mixed precision, device and training code are part of the identity, and a
+    result stored with another fingerprint is never reused."""
+    from qcclass.entrenamiento import gnn as training_module
+    from qcclass.entrenamiento.gnn import run_identity, training_code_version
+
+    settings = TrainingSettings(epocas=2, tasa_aprendizaje=1e-2, regularizacion_pesos=1e-4)
+    base = run_identity({"dim": 16}, settings, 7, device="cuda", micro_nodes=None)
+    assert base["modelo"]["capas"] == 3 and base["codigo"] == training_code_version()
+    assert base["microlote_inicial"] == 100_000 and base["precision_mixta_efectiva"]
+    variants = [
+        run_identity({"dim": 16}, settings, 7, device="cuda", micro_nodes=50_000),
+        run_identity({"dim": 16}, settings, 7, device="cpu", micro_nodes=None),
+        run_identity(
+            {"dim": 16},
+            TrainingSettings(
+                epocas=2, tasa_aprendizaje=1e-2, regularizacion_pesos=1e-4, precision_mixta=False
+            ),
+            7,
+            device="cuda",
+            micro_nodes=None,
+        ),
+        run_identity({"dim": 16, "capas": 3}, settings, 7, device="cuda", micro_nodes=None),
+    ]
+    prints = [hyperparameter_fingerprint(v) for v in variants]
+    assert prints[3] == hyperparameter_fingerprint(base)  # explicit default = same run
+    assert len({hyperparameter_fingerprint(base), *prints[:3]}) == 4
+    # a finished block is reused only with the same fingerprint
+    first = _train(synthetic, tmp_path / "run")
+    assert _train(synthetic, tmp_path / "run").f1_macro_algoritmo == first.f1_macro_algoritmo
+    monkeypatch.setattr(training_module, "training_code_version", lambda: "otro-codigo")
+    with pytest.raises(ValueError, match="never reused"):
+        _train(synthetic, tmp_path / "run")
+    other = run_identity({"dim": 16}, settings, 7, device="cpu", micro_nodes=None)
+    assert other["codigo"] == "otro-codigo"
+
+
+def test_search_ceiling_uses_the_storage_clock() -> None:
+    import datetime as dt
+
+    import optuna
+
+    from qcclass.entrenamiento.busqueda_gnn import elapsed_hours
+
+    study = optuna.create_study()
+    assert elapsed_hours(study) == 0.0
+    start = dt.datetime(2026, 11, 25, 10, 0)
+    for begin, end in ((0, 3), (2, 75)):
+        trial = optuna.trial.FrozenTrial(
+            number=0,
+            state=optuna.trial.TrialState.COMPLETE,
+            value=0.5,
+            datetime_start=start + dt.timedelta(hours=begin),
+            datetime_complete=start + dt.timedelta(hours=end),
+            params={},
+            distributions={},
+            user_attrs={},
+            system_attrs={},
+            intermediate_values={},
+            trial_id=0,
+        )
+        study.add_trial(trial)
+    assert elapsed_hours(study) == pytest.approx(75)
+
+
+def test_cpu_threads_leave_free_cores(monkeypatch) -> None:
+    import os
+
+    from qcclass.entrenamiento.gnn_experimento import configure_cpu_threads
+
+    before = torch.get_num_threads()
+    monkeypatch.setenv("QCCLASS_NUCLEOS_LIBRES", "2")
+    try:
+        assert configure_cpu_threads("cpu") == max(1, (os.cpu_count() or 1) - 2)
+        assert torch.get_num_threads() == max(1, (os.cpu_count() or 1) - 2)
+        assert configure_cpu_threads("cuda") is None
+    finally:
+        torch.set_num_threads(before)

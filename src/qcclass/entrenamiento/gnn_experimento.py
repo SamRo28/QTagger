@@ -15,6 +15,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+import torch
+
 from qcclass.circuitos import write_text_atomic
 from qcclass.config import ConfigError, DatasetConfig, SplitsConfig, load_experiment_config
 from qcclass.entrenamiento.bloques import fold_training, load_pool
@@ -27,6 +29,7 @@ from qcclass.entrenamiento.gnn import (
     TrainingSettings,
     resolve_training_device,
     run_directory,
+    run_identity,
     train_block,
 )
 from qcclass.modelos.gnn import GNNConfig
@@ -44,6 +47,7 @@ DEFAULT_WORKERS = 4
 REQUIRED = ("nombre", "experimento_mlflow", "semilla", "modelo", "entrenamiento")
 AMP_REPORT = "precision_mixta.json"
 CUDA_ALLOCATOR = "expandable_segments:True"
+FREE_CORES_VAR = "QCCLASS_NUCLEOS_LIBRES"
 
 
 @dataclass(frozen=True)
@@ -59,14 +63,6 @@ class GNNExperiment:
     amp_tolerance: float
     raw: dict[str, Any]
     min_micro_nodes: int = DEFAULT_MIN_MICRO_NODES
-
-    def params(self, training: TrainingSettings | None = None) -> dict[str, Any]:
-        """Hyperparameters that identify a run (fingerprint of its directory)."""
-        return {
-            "modelo": self.model,
-            "entrenamiento": (training or self.training).as_dict(),
-            "semilla": self.seed,
-        }
 
 
 def load_gnn_experiment(path: Path | str) -> GNNExperiment:
@@ -107,6 +103,18 @@ def cuda_allocator_environment() -> None:
     os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", CUDA_ALLOCATOR)
 
 
+def configure_cpu_threads(device: str) -> int | None:
+    """On CPU, leave ``QCCLASS_NUCLEOS_LIBRES`` cores free (for the servers on the m1pro):
+    ``torch.set_num_threads(cores - free)``. Returns the threads set (``None`` on GPU)."""
+    if device != "cpu":
+        return None
+    free = int_setting(FREE_CORES_VAR, 0)
+    threads = max(1, (os.cpu_count() or 1) - free)
+    torch.set_num_threads(threads)
+    logger.info("CPU training with %d threads (%d cores left free)", threads, free)
+    return threads
+
+
 def loading_workers() -> int:
     """Data-loading processes of this machine (``QCCLASS_PROCESOS_CARGA``, default 4)."""
     return int_setting(WORKERS_VAR, DEFAULT_WORKERS)
@@ -126,14 +134,12 @@ def train_one_block(
     """Train ``experiment`` on one block with an MLflow run (see the module docstring)."""
     training = training or experiment.training
     device = resolve_training_device(device)
+    threads = configure_cpu_threads(device)
     provenance = start_provenance(config, experiment.name, device=device)
     pool = load_pool(config, splits, experiment.name)
     if not 0 <= block < pool.n_blocks:
         raise ValueError(f"block must be in 0..{pool.n_blocks - 1}")
     fold = fold_training(pool, block, splits)
-    params = experiment.params(training)
-    directory = run_directory(config.rutas.resultados / OUTPUT_DIR, experiment.name, params, block)
-    directory.mkdir(parents=True, exist_ok=True)
     amp = training.precision_mixta and device == "cuda"
     workers = loading_workers() if workers is None else workers
     micro = initial_micro_nodes(
@@ -144,6 +150,11 @@ def train_one_block(
         experiment.min_micro_nodes,
         device,
     )
+    params = run_identity(
+        experiment.model, training, experiment.seed, device=device, micro_nodes=micro
+    )
+    directory = run_directory(config.rutas.resultados / OUTPUT_DIR, experiment.name, params, block)
+    directory.mkdir(parents=True, exist_ok=True)
     from qcclass.seguimiento.mlflow_cliente import tracking_uri
 
     wait_for_mlflow(tracking_uri())  # never start without the server (it may fail later)
@@ -162,6 +173,7 @@ def train_one_block(
                     "dispositivo": device,
                     "precision_mixta": amp,
                     "procesos_carga": workers,
+                    "hilos_cpu": threads or "",
                     "microlote_inicial": micro or "lote",
                     "asignador_cuda": os.environ.get("PYTORCH_CUDA_ALLOC_CONF", ""),
                 }

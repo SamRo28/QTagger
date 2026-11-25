@@ -25,7 +25,9 @@ block (after its cap, with its class weights) and evaluates it on the held-out b
 MPS is never chosen automatically: in the phase M measurement it was slower than the CPU.
 """
 
+import functools
 import hashlib
+import importlib.util
 import json
 import logging
 import math
@@ -118,6 +120,67 @@ def hyperparameter_fingerprint(params: dict[str, Any]) -> str:
     """Short SHA-256 of the canonical JSON of ``params`` (keys sorted)."""
     text = json.dumps(params, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+TRAINING_CODE_MODULES = (  # their source is part of every run's identity
+    "qcclass.entrenamiento.gnn",
+    "qcclass.entrenamiento.microlotes",
+    "qcclass.entrenamiento.bloques",
+    "qcclass.entrenamiento.puntos_guardado",
+    "qcclass.entrenamiento.reproducibilidad",
+    "qcclass.modelos.gnn",
+    "qcclass.modelos.aristas",
+    "qcclass.modelos.lotes",
+    "qcclass.formatos.grafo_dag",
+    "qcclass.evaluacion.metricas",
+)
+
+
+@functools.cache
+def training_code_version() -> str:
+    """Short SHA-256 of the source of :data:`TRAINING_CODE_MODULES`: any change to the
+    training code changes it (and so the fingerprint of every run)."""
+    digest = hashlib.sha256()
+    for module in TRAINING_CODE_MODULES:
+        spec = importlib.util.find_spec(module)
+        if spec is None or spec.origin is None:
+            raise RuntimeError(f"cannot find the source of {module}")
+        digest.update(module.encode("utf-8"))
+        digest.update(Path(spec.origin).read_bytes())
+    return digest.hexdigest()[:12]
+
+
+def complete_model_settings(model: dict[str, Any]) -> dict[str, Any]:
+    """Model settings with every default of :class:`GNNConfig` filled in (data sizes apart)."""
+    sizes = {"node_dim", "edge_dim", "num_classes", "num_families"}
+    defaults = {f.name: f.default for f in fields(GNNConfig) if f.name not in sizes}
+    if unknown := sorted(set(model) - set(defaults)):
+        raise ValueError(f"unknown model settings {unknown}")
+    return {**defaults, **model}
+
+
+def run_identity(
+    model: dict[str, Any],
+    training: TrainingSettings,
+    seed: int,
+    *,
+    device: str,
+    micro_nodes: int | None,
+) -> dict[str, Any]:
+    """Everything that identifies a training run (not its block): complete model and
+    training settings, seed, initial micro-batch, effective mixed precision, device type and
+    the version of the training code. Its fingerprint names the run directory; a stored
+    result or checkpoint with another identity is never reused."""
+    budget = training.presupuesto_nodos
+    return {
+        "modelo": complete_model_settings(model),
+        "entrenamiento": training.as_dict(),
+        "semilla": int(seed),
+        "microlote_inicial": int(budget if micro_nodes is None else min(micro_nodes, budget)),
+        "precision_mixta_efectiva": bool(training.precision_mixta and device == "cuda"),
+        "dispositivo": device,
+        "codigo": training_code_version(),
+    }
 
 
 def run_directory(root: Path, experiment: str, params: dict[str, Any], block: int) -> Path:
@@ -276,9 +339,21 @@ def train_block(
             hyperparameters.
     """
     directory = Path(directory)
+    base_identity = run_identity(
+        model_settings, training, seed, device=device, micro_nodes=micro_nodes
+    )
+    fingerprint = hyperparameter_fingerprint(base_identity)
+    identity = {**base_identity, "bloque": fold.block}
     result_path = directory / RESULT_FILE
     if result_path.is_file():
         stored = json.loads(result_path.read_text(encoding="utf-8"))
+        if stored.get("huella") != fingerprint or stored.get("identidad") != json.loads(
+            json.dumps(identity)
+        ):
+            raise ValueError(
+                f"{result_path} was trained with another fingerprint "
+                f"({stored.get('huella')} instead of {fingerprint}): it is never reused"
+            )
         logger.info("block %d already trained (%s)", fold.block, directory)
         return BlockResult(
             block=fold.block,
@@ -348,12 +423,6 @@ def train_block(
     )
     scaler = torch.amp.GradScaler("cuda", enabled=amp)
     checkpoints = CheckpointManager(directory / CHECKPOINT_DIR)
-    identity = {
-        "modelo": config.as_dict(),
-        "entrenamiento": training.as_dict(),
-        "semilla": seed,
-        "bloque": fold.block,
-    }
     history: list[dict[str, Any]] = []
     start, resumed = 0, None
     micro = (
@@ -496,7 +565,7 @@ def train_block(
         "dispositivo": device,
         "precision_mixta": amp,
         "identidad": identity,
-        "huella": hyperparameter_fingerprint(identity),
+        "huella": fingerprint,
         "reanudado_desde": resumed,
     }
     write_text_atomic(

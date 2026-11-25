@@ -31,13 +31,14 @@ from qcclass.circuitos import write_text_atomic
 from qcclass.config import ConfigError, DatasetConfig, SplitsConfig, load_experiment_config
 from qcclass.entrenamiento.bloques import fold_training, load_pool
 from qcclass.entrenamiento.gnn import PoolGraphs, TrainingSettings, _loader, _weights
+from qcclass.entrenamiento.gnn_experimento import configure_cpu_threads
 from qcclass.entrenamiento.microlotes import AccumulatingStep
 from qcclass.formatos.construir import DAG_DIR
 from qcclass.formatos.grafo_dag import NODE_FEATURES
 from qcclass.modelos.aristas import EDGE_DIM, EdgeTransform
 from qcclass.modelos.gnn import CircuitGNN, GNNConfig, MultiTaskLoss
 from qcclass.modelos.lotes import graph_sizes
-from qcclass.modelos.memoria import MemoryModel, model_path
+from qcclass.modelos.memoria import FEATURES, MemoryModel, model_path
 from qcclass.seguimiento.mlflow_cliente import tracked_run
 from qcclass.seguimiento.procedencia import start_provenance
 
@@ -59,16 +60,20 @@ MB = 2**20
 
 
 def _sync() -> None:
-    torch.cuda.synchronize()
+    if torch.cuda.is_available() and torch.cuda.is_initialized():
+        torch.cuda.synchronize()
 
 
 class Calibration:
     """State shared by the measurements of one calibration run."""
 
-    def __init__(self, config: DatasetConfig, splits: SplitsConfig, data: dict[str, Any]) -> None:
+    def __init__(
+        self, config: DatasetConfig, splits: SplitsConfig, data: dict[str, Any], device: str
+    ) -> None:
         self.data = data
-        self.device = "cuda"
+        self.device = device
         self.training = TrainingSettings.from_mapping(dict(data["entrenamiento"]))
+        self.amp = self.training.precision_mixta and device == "cuda"
         self.fixed = dict(data.get("fijos_modelo") or {})
         pool = load_pool(config, splits, data["nombre"])
         self.pool = pool
@@ -126,7 +131,7 @@ class Calibration:
             lr=self.training.tasa_aprendizaje,
             weight_decay=self.training.regularizacion_pesos,
         )
-        scaler = torch.amp.GradScaler("cuda", enabled=self.training.precision_mixta)
+        scaler = torch.amp.GradScaler("cuda", enabled=self.amp)
         memory = self.data["memoria"]
         step = AccumulatingStep(
             network,
@@ -134,7 +139,7 @@ class Calibration:
             optimizer,
             scaler,
             device=self.device,
-            amp=self.training.precision_mixta,
+            amp=self.amp,
             micro_nodes=self.training.presupuesto_nodos,
             min_micro_nodes=int(memory["microlote_minimo"]),
         )
@@ -176,7 +181,7 @@ def measure_time(
     cal: Calibration,
     name: str,
     model: dict[str, Any],
-    memory: MemoryModel,
+    memory: MemoryModel | None,
     train_batches: list[Any],
     held_batches: list[Any],
 ) -> dict[str, Any]:
@@ -184,13 +189,15 @@ def measure_time(
     network, step, settings = cal.build(model)
     budget = cal.training.presupuesto_nodos
     minimum = int(cal.data["memoria"]["microlote_minimo"])
-    step.micro_nodes = memory.micro_nodes(settings, budget, minimum)
+    step.micro_nodes = budget if memory is None else memory.micro_nodes(settings, budget, minimum)
+    gpu = cal.device == "cuda"
     chosen = step.micro_nodes
     timing = cal.data["tiempo"]
     try:
         step(train_batches[0])
         _sync()
-        torch.cuda.reset_peak_memory_stats()
+        if gpu:
+            torch.cuda.reset_peak_memory_stats()
         start = time.perf_counter()
         nodes = 0
         for batch in train_batches[1:]:
@@ -198,13 +205,10 @@ def measure_time(
             nodes += batch.num_nodes
         _sync()
         train_rate = nodes / (time.perf_counter() - start)
-        allocated = torch.cuda.max_memory_allocated() / MB
-        reserved = torch.cuda.max_memory_reserved() / MB
+        allocated = torch.cuda.max_memory_allocated() / MB if gpu else 0.0
+        reserved = torch.cuda.max_memory_reserved() / MB if gpu else 0.0
         network.eval()
-        with (
-            torch.no_grad(),
-            torch.autocast("cuda", dtype=torch.float16, enabled=cal.training.precision_mixta),
-        ):
+        with torch.no_grad(), torch.autocast("cuda", dtype=torch.float16, enabled=cal.amp):
             network(held_batches[0].to(cal.device))
             _sync()
             start, nodes = time.perf_counter(), 0
@@ -245,30 +249,18 @@ def measure_time(
         "horas_por_intento": hours,
         "pico_asignado_mb": allocated,
         "pico_reservado_mb": reserved,
-        "desborda": reserved > useful,
+        "desborda": gpu and reserved > useful,
+        "dispositivo": cal.device,
+        "precision_mixta": cal.amp,
+        "hilos_cpu": torch.get_num_threads() if not gpu else None,
         "parametros": parameters,
     }
 
 
-def run_calibration(
-    config: DatasetConfig, splits: SplitsConfig, path: Path | str
-) -> tuple[dict[str, Any], Path]:
-    """Run both parts (module docstring) and write the report.
-
-    Raises:
-        ConfigError: if the configuration is invalid.
-        ValueError: without CUDA.
-    """
-    data = load_experiment_config(path, REQUIRED)
-    if not torch.cuda.is_available():
-        raise ValueError("the calibration measures the GPU: CUDA is needed")
-    provenance = start_provenance(config, data["nombre"], device="cuda")
-    try:
-        cal = Calibration(config, splits, data)
-    except (TypeError, ValueError) as exc:
-        raise ConfigError(f"{Path(path).name}: {exc}") from exc
-    memory_settings, timing = data["memoria"], data["tiempo"]
-    seed = int(data["semilla"])
+def _fit_memory(
+    cal: Calibration, data: dict[str, Any], machine: str, results: Path, seed: int
+) -> tuple[list[dict[str, Any]], MemoryModel, Path]:
+    memory_settings = data["memoria"]
     micro = cal.batches(
         "train", int(memory_settings["microlote_medida"]), int(memory_settings["lotes"]) + 1, seed
     )
@@ -279,16 +271,51 @@ def run_calibration(
         measurements.append(result)
     fitted = [m for m in measurements if "mb_por_nodo" in m]
     memory = MemoryModel.fit(
-        provenance.machine,
+        machine,
         fitted,
         useful_mb=float(memory_settings["memoria_util_mb"]),
         margin=float(memory_settings["margen"]),
     )
     for m in fitted:
         m["mb_por_nodo_predicho"] = memory.per_node_mb(m["modelo"])
-    model_file = model_path(config.rutas.resultados, provenance.machine)
+    model_file = model_path(results, machine)
     model_file.parent.mkdir(parents=True, exist_ok=True)
     memory.save(model_file)
+    return measurements, memory, model_file
+
+
+def run_calibration(
+    config: DatasetConfig, splits: SplitsConfig, path: Path | str, *, device: str = "cuda"
+) -> tuple[dict[str, Any], Path]:
+    """Run the calibration (module docstring) and write the report. On ``cpu`` only the time
+    part runs (float32, ``QCCLASS_NUCLEOS_LIBRES`` cores left free, ``tiempo_cpu`` counts).
+
+    Raises:
+        ConfigError: if the configuration is invalid.
+        ValueError: if the device is not available.
+    """
+    data = load_experiment_config(path, REQUIRED)
+    if device not in ("cuda", "cpu"):
+        raise ValueError("the calibration runs on cuda or cpu")
+    if device == "cuda" and not torch.cuda.is_available():
+        raise ValueError("CUDA is not available on this machine")
+    configure_cpu_threads(device)
+    provenance = start_provenance(config, data["nombre"], device=device)
+    try:
+        cal = Calibration(config, splits, data, device)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"{Path(path).name}: {exc}") from exc
+    seed = int(data["semilla"])
+    measurements, memory, model_file = [], None, None
+    if device == "cuda":
+        measurements, memory, model_file = _fit_memory(
+            cal, data, provenance.machine, config.rutas.resultados, seed
+        )
+    timing = (
+        {**data["tiempo"], **(data.get("tiempo_cpu") or {})}
+        if device == "cpu"
+        else (data["tiempo"])
+    )
     budget = cal.training.presupuesto_nodos
     train_batches = cal.batches("train", budget, int(timing["lotes"]) + 1, seed + 1)
     held_batches = cal.batches("held", budget, int(timing["lotes_evaluacion"]) + 1, seed + 2)
@@ -303,20 +330,10 @@ def run_calibration(
         "nodos_entrenamiento": cal.train_nodes,
         "nodos_evaluacion": cal.held_nodes,
         "memoria": measurements,
-        "modelo_memoria": str(model_file),
-        "coeficientes": dict(
-            zip(
-                (
-                    "constante",
-                    "dim",
-                    "dim_x_capas",
-                    "dim_x_capas_gatv2",
-                    "dim_nodo_virtual",
-                    "dim_atencion",
-                ),
-                memory.coefficients,
-                strict=True,
-            )
+        "dispositivo": device,
+        "modelo_memoria": str(model_file) if model_file else None,
+        "coeficientes": (
+            dict(zip(FEATURES, memory.coefficients, strict=True)) if memory is not None else None
         ),
         "estimaciones": estimates,
         **{k: provenance.tags[k] for k in ("version_dataset", "git_commit")},
@@ -344,5 +361,6 @@ def run_calibration(
                     }
                 )
         run.log_artifact(report_path)
-        run.log_artifact(model_file)
+        if model_file is not None:
+            run.log_artifact(model_file)
     return report, report_path

@@ -32,7 +32,11 @@ tiempo:
   lotes: 8                             # whole batches (100 000 nodes) timed per configuration
   lotes_evaluacion: 3
   bloques: 5                           # hours per trial = bloques x (epochs x s/epoch + evaluations)
-  epocas: [50, 100, 150]
+  epocas: [50, 100]                    # search space after the phase 12 time limit
+
+tiempo_cpu:                            # --dispositivo cpu (m1pro): fewer batches, ~5 min
+  lotes: 3
+  lotes_evaluacion: 2
 
 # Configurations of the memory fit (the rest of the model settings: as in the search).
 diseno:
@@ -50,12 +54,12 @@ diseno:
   - {tipo_capa: gatv2, dim: 64, capas: 5, nodo_virtual: true, agregacion: atencion}
 
 # Configurations whose time per epoch and per trial is reported.
-estimar:
+estimar:                               # corners and middle of the search space (capas 3-6)
   gine_64x3: {tipo_capa: gine, dim: 64, capas: 3, nodo_virtual: false, agregacion: media_max}
-  gine_128x8: {tipo_capa: gine, dim: 128, capas: 8, nodo_virtual: true, agregacion: atencion}
+  gine_128x6: {tipo_capa: gine, dim: 128, capas: 6, nodo_virtual: true, agregacion: atencion}
   gatv2_64x3: {tipo_capa: gatv2, dim: 64, capas: 3, nodo_virtual: false, agregacion: media_max}
-  gatv2_128x8: {tipo_capa: gatv2, dim: 128, capas: 8, nodo_virtual: true, agregacion: atencion}
-  media_gine_128x5: {tipo_capa: gine, dim: 128, capas: 5, nodo_virtual: true, agregacion: media_max}
+  gatv2_128x6: {tipo_capa: gatv2, dim: 128, capas: 6, nodo_virtual: true, agregacion: atencion}
+  media_gine_128x4: {tipo_capa: gine, dim: 128, capas: 4, nodo_virtual: true, agregacion: media_max}
   media_gatv2_64x5: {tipo_capa: gatv2, dim: 64, capas: 5, nodo_virtual: false, agregacion: atencion}
 
 fijos_modelo:

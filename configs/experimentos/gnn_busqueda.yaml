@@ -1,30 +1,32 @@
 # Phase 12: hyperparameter search of the GNN (qcclass buscar-gnn). Study gnn_aleatorio_v1 in
 # the shared Optuna storage; objective = mean algorithm macro F1 over the 5 cross-validation
-# blocks of train + val of `aleatorio` (1 seed per block); never the test set.
+# blocks of train + val of `aleatorio` (1 seed per block); never the test set. Workers:
+# rtx3050 (CUDA, mixed precision) and m1pro (CPU, float32), on the same study.
 
 nombre: gnn_aleatorio_v1               # Optuna study and folder results/gnn/<nombre>/
 experimento_mlflow: gnn_aleatorio_v1
 semilla: 42
-intentos: 50
+intentos: 50                           # ends at 50 finished trials (complete or pruned)...
+limite_horas: 72                       # ...or 72 h after the first trial started
 bloques: null                          # null = the 5 blocks
 poda:
   intentos_iniciales: 10               # MedianPruner: complete trials before pruning
   informe_cada_epocas: 10              # block 0: intermediate value every N epochs
 estimacion:
   tras_intentos: 10                    # estimate the remaining time from real trials
-  limite_horas: 48                     # above it: warning (decide on a second worker)
+  limite_horas: 72                     # projected total above it: warning
 
 espacio:                               # tipo: float (min, max, log), int, categorica, fijo
   tipo_capa: {tipo: categorica, valores: [gine, gatv2]}
   dim: {tipo: categorica, valores: [64, 128]}
-  capas: {tipo: int, min: 3, max: 8}
+  capas: {tipo: int, min: 3, max: 6}    # plan: 3-8; limited by time (DECISIONES, phase 12)
   nodo_virtual: {tipo: categorica, valores: [true, false]}
   agregacion: {tipo: categorica, valores: [media_max, atencion]}
   lambda_familia: {tipo: float, min: 0.2, max: 1.0}
   tasa_aprendizaje: {tipo: float, min: 1.0e-4, max: 3.0e-3, log: true}
   dropout: {tipo: float, min: 0.0, max: 0.5}
   regularizacion_pesos: {tipo: float, min: 1.0e-6, max: 1.0e-2, log: true}
-  epocas: {tipo: categorica, valores: [50, 100, 150]}
+  epocas: {tipo: categorica, valores: [50, 100]}   # plan: 50, 100, 150; limited by time
 
 fijos:
   modelo:
