@@ -243,8 +243,26 @@ class CircuitGNN(nn.Module):
         return {"configuracion": c.as_dict(), "capas": layers, "parametros": total}
 
 
+@dataclass
+class LossSums:
+    """Weighted sums of a (micro-)batch: ``sum_i w_{y_i} * CE_i`` and ``sum_i w_{y_i}`` of each
+    head (algorithm rows with -1 excluded)."""
+
+    algoritmo: Tensor
+    peso_algoritmo: Tensor
+    familia: Tensor
+    peso_familia: Tensor
+
+
 class MultiTaskLoss(nn.Module):
-    """``CE_alg(ignore -1) + lambda_familia * CE_fam``, both with class weights."""
+    """``CE_alg(ignore -1) + lambda_familia * CE_fam``, both with class weights.
+
+    Each term is a weighted mean, ``sum_i w_{y_i} CE_i / sum_i w_{y_i}`` (as PyTorch's
+    ``cross_entropy`` with ``weight``). For gradient accumulation over micro-batches,
+    :meth:`sums` gives the numerators and denominators of a micro-batch and
+    :meth:`from_sums` divides by the totals of the whole batch, so the accumulated gradient is
+    that of the whole batch at once.
+    """
 
     def __init__(
         self, algorithm_weights: Tensor, family_weights: Tensor, lambda_familia: float
@@ -254,28 +272,61 @@ class MultiTaskLoss(nn.Module):
         self.register_buffer("family_weights", family_weights.float())
         self.lambda_familia = float(lambda_familia)
 
-    def forward(
-        self, output: GNNOutput, y_algorithm: Tensor, y_family: Tensor
-    ) -> tuple[Tensor, float, float]:
-        """(total, algorithm term, family term) of a batch.
-
-        Raises:
-            ValueError: if a target is ``UNKNOWN`` (-2), which must never be trained on.
-        """
+    @staticmethod
+    def check_targets(y_algorithm: Tensor, y_family: Tensor) -> None:
+        """Raises ``ValueError`` if a target is ``UNKNOWN`` (-2), never trained on."""
         if bool((y_algorithm == UNKNOWN).any()) or bool((y_family == UNKNOWN).any()):
             raise ValueError("an example coded as unknown (-2) reached the training loss")
-        algorithm = torch.zeros((), device=output.algoritmo.device)
-        if bool((y_algorithm != NO_LABEL).any()):  # a batch of family-only graphs has no term
+
+    def weight_totals(self, y_algorithm: Tensor, y_family: Tensor) -> tuple[float, float]:
+        """``sum_i w_{y_i}`` of each head over the rows given (any device)."""
+        self.check_targets(y_algorithm, y_family)
+        labelled = y_algorithm[y_algorithm != NO_LABEL]
+        algorithm = self.algorithm_weights.to(labelled.device)[labelled].sum()
+        family = self.family_weights.to(y_family.device)[y_family].sum()
+        return float(algorithm), float(family)
+
+    def sums(self, output: GNNOutput, y_algorithm: Tensor, y_family: Tensor) -> LossSums:
+        """Weighted sums of a (micro-)batch."""
+        self.check_targets(y_algorithm, y_family)
+        labelled = y_algorithm != NO_LABEL
+        zero = torch.zeros((), device=output.algoritmo.device)
+        algorithm, algorithm_weight = zero, zero
+        if bool(labelled.any()):
             algorithm = functional.cross_entropy(
                 output.algoritmo.float(),
                 y_algorithm,
                 weight=self.algorithm_weights,
                 ignore_index=NO_LABEL,
+                reduction="sum",
             )
-        family = torch.zeros((), device=output.familia.device)
+            algorithm_weight = self.algorithm_weights[y_algorithm[labelled]].sum()
+        family, family_weight = zero, zero
         if self.lambda_familia > 0:
             family = functional.cross_entropy(
-                output.familia.float(), y_family, weight=self.family_weights
+                output.familia.float(), y_family, weight=self.family_weights, reduction="sum"
             )
-        total = algorithm + self.lambda_familia * family
-        return total, float(algorithm.detach()), float(family.detach())
+            family_weight = self.family_weights[y_family].sum()
+        return LossSums(algorithm, algorithm_weight, family, family_weight)
+
+    def from_sums(self, sums: LossSums, algorithm_total: float, family_total: float) -> Tensor:
+        """Share of the whole-batch loss carried by a micro-batch (totals of the whole batch)."""
+        loss = sums.algoritmo / algorithm_total if algorithm_total > 0 else sums.algoritmo * 0
+        if self.lambda_familia > 0 and family_total > 0:
+            loss = loss + self.lambda_familia * sums.familia / family_total
+        return loss
+
+    def forward(
+        self, output: GNNOutput, y_algorithm: Tensor, y_family: Tensor
+    ) -> tuple[Tensor, float, float]:
+        """(total, algorithm term, family term) of a whole batch.
+
+        Raises:
+            ValueError: if a target is ``UNKNOWN`` (-2), which must never be trained on.
+        """
+        sums = self.sums(output, y_algorithm, y_family)
+        algorithm_total, family_total = float(sums.peso_algoritmo), float(sums.peso_familia)
+        total = self.from_sums(sums, algorithm_total, family_total)
+        algorithm = float(sums.algoritmo.detach()) / algorithm_total if algorithm_total else 0.0
+        family = float(sums.familia.detach()) / family_total if family_total else 0.0
+        return total, algorithm, family

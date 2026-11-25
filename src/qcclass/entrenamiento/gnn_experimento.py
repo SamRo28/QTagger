@@ -10,6 +10,7 @@ run continues after an interruption (same directory, same run).
 
 import json
 import logging
+import os
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,7 @@ from qcclass.config import ConfigError, DatasetConfig, SplitsConfig, load_experi
 from qcclass.entrenamiento.bloques import fold_training, load_pool
 from qcclass.entrenamiento.gnn import (
     ARCHITECTURE_FILE,
+    DEFAULT_MIN_MICRO_NODES,
     PREDICTIONS_FILE,
     RESULT_FILE,
     BlockResult,
@@ -28,6 +30,7 @@ from qcclass.entrenamiento.gnn import (
     train_block,
 )
 from qcclass.modelos.gnn import GNNConfig
+from qcclass.modelos.memoria import initial_micro_nodes
 from qcclass.seguimiento.entorno import int_setting
 from qcclass.seguimiento.mlflow_cliente import flatten, wait_for_mlflow
 from qcclass.seguimiento.procedencia import start_provenance
@@ -40,6 +43,7 @@ WORKERS_VAR = "QCCLASS_PROCESOS_CARGA"
 DEFAULT_WORKERS = 4
 REQUIRED = ("nombre", "experimento_mlflow", "semilla", "modelo", "entrenamiento")
 AMP_REPORT = "precision_mixta.json"
+CUDA_ALLOCATOR = "expandable_segments:True"
 
 
 @dataclass(frozen=True)
@@ -54,6 +58,7 @@ class GNNExperiment:
     amp_check_block: int
     amp_tolerance: float
     raw: dict[str, Any]
+    min_micro_nodes: int = DEFAULT_MIN_MICRO_NODES
 
     def params(self, training: TrainingSettings | None = None) -> dict[str, Any]:
         """Hyperparameters that identify a run (fingerprint of its directory)."""
@@ -85,9 +90,21 @@ def load_gnn_experiment(path: Path | str) -> GNNExperiment:
             amp_check_block=int(check.get("bloque", 0)),
             amp_tolerance=float(check.get("tolerancia_f1", 0.01)),
             raw=data,
+            min_micro_nodes=min_micro_nodes(data),
         )
     except (TypeError, ValueError) as exc:
         raise ConfigError(f"{Path(path).name}: {exc}") from exc
+
+
+def min_micro_nodes(data: dict[str, Any]) -> int:
+    """``memoria.microlote_minimo`` of a configuration (default 20 000)."""
+    return int((data.get("memoria") or {}).get("microlote_minimo", DEFAULT_MIN_MICRO_NODES))
+
+
+def cuda_allocator_environment() -> None:
+    """Expandable segments for PyTorch's CUDA allocator (less fragmentation with batches of
+    different sizes); set before CUDA is used, unless already configured."""
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", CUDA_ALLOCATOR)
 
 
 def loading_workers() -> int:
@@ -119,6 +136,14 @@ def train_one_block(
     directory.mkdir(parents=True, exist_ok=True)
     amp = training.precision_mixta and device == "cuda"
     workers = loading_workers() if workers is None else workers
+    micro = initial_micro_nodes(
+        config.rutas.resultados,
+        provenance.machine,
+        experiment.model,
+        training.presupuesto_nodos,
+        experiment.min_micro_nodes,
+        device,
+    )
     from qcclass.seguimiento.mlflow_cliente import tracking_uri
 
     wait_for_mlflow(tracking_uri())  # never start without the server (it may fail later)
@@ -137,6 +162,8 @@ def train_one_block(
                     "dispositivo": device,
                     "precision_mixta": amp,
                     "procesos_carga": workers,
+                    "microlote_inicial": micro or "lote",
+                    "asignador_cuda": os.environ.get("PYTORCH_CUDA_ALLOC_CONF", ""),
                 }
             )
         )
@@ -156,6 +183,8 @@ def train_one_block(
             workers=workers,
             run=run,
             max_batches=max_batches,
+            micro_nodes=micro,
+            min_micro_nodes=experiment.min_micro_nodes,
         )
     except BaseException:
         run.finish("FAILED")

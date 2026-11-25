@@ -441,3 +441,137 @@ def test_search_objective_dedup_and_estimate(synthetic, tmp_path: Path) -> None:
     figures = estimate(study, search)
     assert figures["intentos_terminados"] == 2 and figures["intentos_restantes"] == 1
     assert figures["supera_limite"]
+
+
+# --------------------------------------------------------------------------------------------
+# Micro-batches with gradient accumulation
+# --------------------------------------------------------------------------------------------
+
+
+def _accumulation_setup(seed: int = 4):
+    from qcclass.entrenamiento.microlotes import AccumulatingStep
+
+    rng = np.random.default_rng(seed)
+    transform = EdgeTransform()
+    graphs = []
+    for g in range(12):
+        data = transform(_graph(rng, int(rng.integers(5, 30)), g % 3))
+        data.y_algoritmo = torch.tensor([NO_LABEL if g == 5 else g % 3])
+        data.y_familia = torch.tensor([g % 2])
+        graphs.append(data)
+    batch = Batch.from_data_list(graphs)
+
+    def stepper(micro: int, *, minimum: int = 1):
+        torch.manual_seed(0)
+        model = CircuitGNN(_config(dim=16, capas=2, nodo_virtual=True, agregacion="atencion"))
+        model.eval()  # BatchNorm with running statistics: the only per-micro-batch part
+        loss = MultiTaskLoss(torch.tensor([1.0, 2.0, 0.5]), torch.tensor([1.0, 3.0]), 0.7)
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.0)
+        scaler = torch.amp.GradScaler("cuda", enabled=False)
+        step = AccumulatingStep(
+            model,
+            loss,
+            optimizer,
+            scaler,
+            device="cpu",
+            amp=False,
+            micro_nodes=micro,
+            min_micro_nodes=minimum,
+        )
+        return model, step
+
+    return batch, stepper
+
+
+def test_accumulated_gradient_equals_the_whole_batch() -> None:
+    from qcclass.entrenamiento.microlotes import split_batch
+
+    batch, stepper = _accumulation_setup()
+    gradients, losses = {}, {}
+    for parts in (1, 2, 4):
+        micro = batch.num_nodes if parts == 1 else math.ceil(batch.num_nodes / parts)
+        assert len(split_batch(batch, micro)) >= parts
+        model, step = stepper(micro)
+        result = step(batch)
+        assert result.microlotes == len(split_batch(batch, micro))
+        gradients[parts] = torch.cat(
+            [p.grad.flatten() for p in model.parameters() if p.grad is not None]
+        )
+        losses[parts] = result.total
+    # reference: the loss of the whole batch with the (non-accumulating) forward of the loss
+    model, _ = stepper(batch.num_nodes)
+    loss = MultiTaskLoss(torch.tensor([1.0, 2.0, 0.5]), torch.tensor([1.0, 3.0]), 0.7)
+    total, _, _ = loss(model(batch), batch.y_algoritmo, batch.y_familia)
+    total.backward()
+    reference = torch.cat([p.grad.flatten() for p in model.parameters() if p.grad is not None])
+    for parts in (1, 2, 4):
+        assert torch.allclose(gradients[parts], reference, rtol=1e-4, atol=1e-6), parts
+        assert losses[parts] == pytest.approx(float(total), rel=1e-5)
+
+
+def test_split_batch_keeps_every_graph_in_order() -> None:
+    from qcclass.entrenamiento.microlotes import split_batch
+
+    batch, _ = _accumulation_setup()
+    parts = split_batch(batch, 60)
+    assert sum(p.num_graphs for p in parts) == batch.num_graphs
+    assert all(p.num_nodes <= 60 or p.num_graphs == 1 for p in parts)
+    joined = torch.cat([p.y_algoritmo for p in parts])
+    assert torch.equal(joined, batch.y_algoritmo)
+    assert split_batch(batch, batch.num_nodes)[0] is batch
+
+
+def test_out_of_memory_halves_the_micro_batch_and_then_fails(monkeypatch) -> None:
+    batch, stepper = _accumulation_setup()
+    model, step = stepper(batch.num_nodes, minimum=40)
+    original = model.forward
+    limit = {"nodes": 70}
+
+    def forward(data, **kwargs):  # noqa: ANN001, ANN202
+        if data.num_nodes > limit["nodes"]:
+            raise torch.OutOfMemoryError("CUDA out of memory (simulated)")
+        return original(data, **kwargs)
+
+    monkeypatch.setattr(model, "forward", forward)
+    result = step(batch)
+    assert step.micro_nodes <= 70 and result.microlotes > 1
+    assert all(p.grad is not None for p in model.parameters() if p.requires_grad)
+    limit["nodes"] = 10  # below the minimum micro-batch: the error is raised
+    with pytest.raises(torch.OutOfMemoryError):
+        step(batch)
+    assert step.micro_nodes == 40
+
+
+def test_memory_model_fit_and_micro_batch_choice(tmp_path: Path) -> None:
+    from qcclass.modelos.memoria import MemoryModel, features, initial_micro_nodes, model_path
+
+    truth = np.array([0.0, 1e-5, 2e-5, 3e-5, 1e-6, 2e-6])
+    configs = [
+        {"tipo_capa": t, "dim": d, "capas": c, "nodo_virtual": v, "agregacion": a}
+        for t in ("gine", "gatv2")
+        for d in (64, 128)
+        for c in (3, 8)
+        for v, a in ((False, "media_max"), (True, "atencion"))
+    ]
+    measured = [{"modelo": m, "mb_por_nodo": float(features(m) @ truth)} for m in configs]
+    model = MemoryModel.fit("rtx", measured, useful_mb=3300, margin=1.15)
+    big = {
+        "tipo_capa": "gatv2",
+        "dim": 128,
+        "capas": 8,
+        "nodo_virtual": True,
+        "agregacion": "atencion",
+    }
+    assert model.per_node_mb(big) == pytest.approx(float(features(big) @ truth), rel=1e-6)
+    per_node = model.per_node_mb(big)
+    chosen = model.micro_nodes(big, 100_000, 20_000)
+    assert chosen in (100_000, 50_000, 25_000, 20_000)
+    assert 1.15 * chosen * per_node <= 3300 or chosen == 20_000
+    assert model.micro_nodes({"dim": 64, "capas": 3}, 100_000, 20_000) == 100_000
+    path = model_path(tmp_path, "rtx")
+    path.parent.mkdir(parents=True)
+    model.save(path)
+    assert MemoryModel.load(path).coefficients == model.coefficients
+    assert initial_micro_nodes(tmp_path, "rtx", big, 100_000, 20_000, "cuda") == chosen
+    assert initial_micro_nodes(tmp_path, "rtx", big, 100_000, 20_000, "cpu") is None
+    assert initial_micro_nodes(tmp_path, "otro", big, 100_000, 20_000, "cuda") is None

@@ -670,10 +670,15 @@ def entrenar_gnn(
     from dataclasses import replace
 
     from qcclass.config import ConfigError
-    from qcclass.entrenamiento.gnn_experimento import load_gnn_experiment, train_one_block
+    from qcclass.entrenamiento.gnn_experimento import (
+        cuda_allocator_environment,
+        load_gnn_experiment,
+        train_one_block,
+    )
     from qcclass.seguimiento.entorno import ServerConnectionError, load_env
     from qcclass.versionado import VersionError
 
+    cuda_allocator_environment()
     dataset = _load_dataset_config(config)
     split_config = _load_splits_config(splits, dataset)
     try:
@@ -735,11 +740,12 @@ def buscar_gnn(
     launching it again resumes the study and the interrupted trial."""
     from qcclass.config import ConfigError
     from qcclass.entrenamiento.busqueda_gnn import ESTIMATE_FILE, load_search_config, run_search
-    from qcclass.entrenamiento.gnn_experimento import OUTPUT_DIR
+    from qcclass.entrenamiento.gnn_experimento import OUTPUT_DIR, cuda_allocator_environment
     from qcclass.seguimiento.entorno import ServerConnectionError, load_env
     from qcclass.seguimiento.optuna_cliente import connect
     from qcclass.versionado import VersionError
 
+    cuda_allocator_environment()
     dataset = _load_dataset_config(config)
     split_config = _load_splits_config(splits, dataset)
     try:
@@ -767,6 +773,58 @@ def optuna_state(name: str):  # noqa: ANN201 - optuna.trial.TrialState
     return optuna.trial.TrialState[name]
 
 
+@app.command("calibrar-gnn")
+def calibrar_gnn(
+    config: ConfigOption = DEFAULT_DATASET_CONFIG,
+    splits: SplitsOption = DEFAULT_SPLITS_CONFIG,
+    experimento: Annotated[Path, typer.Option(help="Calibration configuration.")] = Path(
+        "configs/experimentos/gnn_calibracion.yaml"
+    ),
+) -> None:
+    """Phase 12: GPU memory model and real time per configuration of the GNN on this machine
+    (CUDA; train part and held-out block of one cross-validation block, never the test set)."""
+    from qcclass.entrenamiento.gnn_experimento import cuda_allocator_environment
+
+    cuda_allocator_environment()
+    from qcclass.config import ConfigError
+    from qcclass.entrenamiento.calibracion import run_calibration
+    from qcclass.seguimiento.entorno import ServerConnectionError, load_env
+    from qcclass.versionado import VersionError
+
+    dataset = _load_dataset_config(config)
+    split_config = _load_splits_config(splits, dataset)
+    try:
+        load_env(dataset.rutas.raiz)
+        report, path = run_calibration(dataset, split_config, experimento)
+    except (ConfigError, ServerConnectionError, VersionError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    for m in report["memoria"]:
+        model = m["modelo"]
+        label = f"{model['tipo_capa']} {model['dim']}x{model['capas']}"
+        label += f"{' vn' if model['nodo_virtual'] else ''} {model['agregacion']}"
+        if "error" in m:
+            typer.echo(f"memory {label}: {m['error']}")
+        else:
+            typer.echo(
+                f"memory {label}: {1024 * m['mb_por_nodo']:.1f} KB/node measured, "
+                f"{1024 * m['mb_por_nodo_predicho']:.1f} predicted"
+            )
+    for e in report["estimaciones"]:
+        if "error" in e:
+            typer.echo(f"{e['nombre']}: {e['error']} (micro-batch {e['microlote_nodos']})")
+            continue
+        hours = ", ".join(f"{k} ep {v:.1f} h" for k, v in e["horas_por_intento"].items())
+        typer.echo(
+            f"{e['nombre']}: micro-batch {e['microlote_nodos']}, "
+            f"{e['segundos_entrenamiento_epoca']:.1f} s/epoch + {e['segundos_evaluacion']:.1f} s "
+            f"per evaluation; GPU {e['pico_asignado_mb']:.0f} MB allocated, "
+            f"{e['pico_reservado_mb']:.0f} reserved{' SPILLS' if e['desborda'] else ''}; "
+            f"per trial: {hours}"
+        )
+    typer.echo(f"Report: {path}")
+
+
 @app.command("comprobar-precision-mixta")
 def comprobar_precision_mixta(
     config: ConfigOption = DEFAULT_DATASET_CONFIG,
@@ -780,10 +838,15 @@ def comprobar_precision_mixta(
 ) -> None:
     """Phase 11: reference configuration on its block with and without mixed precision (CUDA)."""
     from qcclass.config import ConfigError
-    from qcclass.entrenamiento.gnn_experimento import check_mixed_precision, load_gnn_experiment
+    from qcclass.entrenamiento.gnn_experimento import (
+        check_mixed_precision,
+        cuda_allocator_environment,
+        load_gnn_experiment,
+    )
     from qcclass.seguimiento.entorno import ServerConnectionError, load_env
     from qcclass.versionado import VersionError
 
+    cuda_allocator_environment()
     dataset = _load_dataset_config(config)
     split_config = _load_splits_config(splits, dataset)
     try:

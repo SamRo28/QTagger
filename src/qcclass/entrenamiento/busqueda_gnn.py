@@ -44,6 +44,7 @@ from qcclass.circuitos import write_text_atomic
 from qcclass.config import ConfigError, DatasetConfig, SplitsConfig, load_experiment_config
 from qcclass.entrenamiento.bloques import fold_training, load_pool
 from qcclass.entrenamiento.gnn import (
+    DEFAULT_MIN_MICRO_NODES,
     PREDICTIONS_FILE,
     TrainingSettings,
     hyperparameter_fingerprint,
@@ -51,10 +52,11 @@ from qcclass.entrenamiento.gnn import (
     run_directory,
     train_block,
 )
-from qcclass.entrenamiento.gnn_experimento import OUTPUT_DIR, loading_workers
+from qcclass.entrenamiento.gnn_experimento import OUTPUT_DIR, loading_workers, min_micro_nodes
 from qcclass.evaluacion.predicciones import aggregate_out_of_fold
 from qcclass.lineabase.configuracion import check_space, suggest
 from qcclass.modelos.gnn import GNNConfig
+from qcclass.modelos.memoria import initial_micro_nodes
 from qcclass.seguimiento.mlflow_cliente import flatten, tracking_uri, wait_for_mlflow
 from qcclass.seguimiento.optuna_cliente import MACHINE_ATTR, BufferedReports, fail_stale_trials
 from qcclass.seguimiento.procedencia import start_provenance
@@ -104,6 +106,7 @@ class SearchConfig:
     fixed_model: dict[str, Any]
     fixed_training: dict[str, Any]
     raw: dict[str, Any]
+    min_micro_nodes: int = DEFAULT_MIN_MICRO_NODES
 
 
 def load_search_config(path: Path | str) -> SearchConfig:
@@ -144,6 +147,7 @@ def load_search_config(path: Path | str) -> SearchConfig:
         fixed_model=fixed_model,
         fixed_training=fixed_training,
         raw=data,
+        min_micro_nodes=min_micro_nodes(data),
     )
     try:  # every point of the space must build valid settings
         split_params(config, {k: _example(s) for k, s in space.items()})
@@ -244,6 +248,19 @@ def make_objective(ctx: SearchContext, study: optuna.Study) -> Callable[[optuna.
                         trial.set_user_attr(key, done.user_attrs[key])
                 return float(done.value)
         directory = run_directory(ctx.output, search.name, identity, 0).parent
+        micro = (
+            None
+            if ctx.device != "cuda"
+            else initial_micro_nodes(
+                ctx.config.rutas.resultados,
+                ctx.provenance.machine,
+                model,
+                training.presupuesto_nodos,
+                search.min_micro_nodes,
+                ctx.device,
+            )
+        )
+        trial.set_user_attr("microlote_inicial", micro or training.presupuesto_nodos)
         run = _trial_run(ctx, trial, directory, identity)
         reports = BufferedReports(trial, ctx.storage)
         scores, family, seconds = [], [], []
@@ -277,7 +294,10 @@ def make_objective(ctx: SearchContext, study: optuna.Study) -> Callable[[optuna.
                     on_epoch=on_epoch,
                     max_batches=ctx.max_batches,
                     metric_prefix=f"bloque{fold.block}.",
+                    micro_nodes=micro,
+                    min_micro_nodes=search.min_micro_nodes,
                 )
+                micro = int(result.history[-1].get("microlote_nodos", 0)) or micro  # keep halvings
                 scores.append(result.f1_macro_algoritmo)
                 family.append(result.f1_macro_familia)
                 seconds.append(result.seconds)

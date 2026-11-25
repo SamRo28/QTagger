@@ -200,3 +200,10 @@ Los comandos concretos de cada fase se añaden aquí cuando existan.
   parando los servidores del `m1pro` a mitad. Búsqueda: `qcclass buscar-gnn` en tmux (sesión
   `fase12`), relanzable; progreso en `results/gnn/gnn_aleatorio_v1/estimacion.json`, en
   MLflow (experimento `gnn_aleatorio_v1`) y en el estudio de Optuna.
+- **GPU del `rtx3050` (una vez):** Panel de control de NVIDIA → *Administrar configuración
+  3D* → *CUDA - Sysmem Fallback Policy* → **Prefer No Sysmem Fallback**. Sin esto, lo que no
+  cabe en los 4 GB se desborda a la RAM sin error y va unas 50 veces más lento. Los comandos
+  de entrenamiento ponen `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`. `qcclass
+  calibrar-gnn` mide la memoria por nodo y el tiempo por configuración y guarda
+  `results/medicion/memoria_gnn_rtx3050.json`, con el que cada entrenamiento elige su
+  microlote.

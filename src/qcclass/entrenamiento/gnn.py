@@ -8,6 +8,10 @@ block (after its cap, with its class weights) and evaluates it on the held-out b
 * batches limited by a node budget (``presupuesto_nodos``), reshuffled every epoch with a
   seed derived from the run seed and the block; ``workers`` loading processes;
 * mixed precision (float16 autocast + gradient scaler) only on CUDA;
+* gradient accumulation over micro-batches when the whole batch does not fit in the GPU,
+  with the exact loss of the whole batch and one optimiser step per batch; on an
+  out-of-memory error the batch is retried with micro-batches of half the size
+  (``entrenamiento.microlotes``);
 * a checkpoint after every epoch in ``directory`` (model, optimiser, scaler, sampler epoch,
   history and every random generator). Launching again with the same ``directory`` resumes
   from the last epoch; a finished run (``resultado.json``) is returned as it is. The
@@ -38,6 +42,7 @@ from torch_geometric.loader import DataLoader
 
 from qcclass.circuitos import write_text_atomic
 from qcclass.entrenamiento.bloques import CrossValidationPool, FoldTraining
+from qcclass.entrenamiento.microlotes import AccumulatingStep
 from qcclass.entrenamiento.puntos_guardado import CheckpointManager
 from qcclass.entrenamiento.reproducibilidad import set_global_seeds
 from qcclass.evaluacion.metricas import confusion, scores_from_confusion
@@ -59,6 +64,7 @@ ARCHITECTURE_FILE = "arquitectura.json"
 CHECKPOINT_DIR = "puntos"
 DEVICES = ("auto", "cuda", "cpu", "mps")
 RAM_INTERVAL = 1.0  # seconds between RAM samples during training
+DEFAULT_MIN_MICRO_NODES = 20_000  # smallest micro-batch: above the largest graph (19 937)
 
 
 @dataclass(frozen=True)
@@ -256,10 +262,14 @@ def train_block(
     max_batches: int | None = None,
     metric_prefix: str = "",
     stop_after: int | None = None,
+    micro_nodes: int | None = None,
+    min_micro_nodes: int = DEFAULT_MIN_MICRO_NODES,
 ) -> BlockResult:
     """Train on ``fold`` and evaluate on its held-out block (see the module docstring).
 
     ``stop_after`` ends the call after that epoch (as an interruption would; tests).
+    ``micro_nodes`` is the initial micro-batch size (default: the whole batch); it halves on
+    an out-of-memory error down to ``min_micro_nodes`` (see ``entrenamiento.microlotes``).
 
     Raises:
         ValueError: if a training target is unknown (-2) or a checkpoint belongs to other
@@ -346,6 +356,11 @@ def train_block(
     }
     history: list[dict[str, Any]] = []
     start, resumed = 0, None
+    micro = (
+        training.presupuesto_nodos
+        if micro_nodes is None
+        else min(micro_nodes, training.presupuesto_nodos)
+    )
     loaded = checkpoints.load_latest(map_location=device)
     if loaded is not None:
         epoch, states = loaded
@@ -356,7 +371,18 @@ def train_block(
         scaler.load_state_dict(states["escalador"])
         history = list(states["historial"])
         start = resumed = epoch
+        micro = int(states.get("microlote", micro))
     sampler.epoch = start
+    stepper = AccumulatingStep(
+        model,
+        loss_fn,
+        optimizer,
+        scaler,
+        device=device,
+        amp=amp,
+        micro_nodes=max(micro, min_micro_nodes),
+        min_micro_nodes=min_micro_nodes,
+    )
     y_alg = held_rows["y_algoritmo"].to_numpy()
     y_fam = held_rows["y_familia"].to_numpy()
     started = time.perf_counter() - sum(h["segundos_epoca"] for h in history)
@@ -373,21 +399,18 @@ def train_block(
             totals = np.zeros(3)
             graphs_seen = 0
             batches = len(sampler)
+            micro_batches = 0
             for step, batch in enumerate(train_loader):
                 factor = learning_rate_factor(
                     epoch + step / max(batches, 1), training.epocas, training.calentamiento
                 )
                 for group in optimizer.param_groups:
                     group["lr"] = training.tasa_aprendizaje * factor
-                batch = batch.to(device, non_blocking=True)
-                optimizer.zero_grad(set_to_none=True)
-                with torch.autocast("cuda", dtype=torch.float16, enabled=amp):
-                    output = model(batch)
-                total, algorithm, family = loss_fn(output, batch.y_algoritmo, batch.y_familia)
-                scaler.scale(total).backward()
-                scaler.step(optimizer)
-                scaler.update()
-                totals += batch.num_graphs * np.array([float(total.detach()), algorithm, family])
+                result = stepper(batch)
+                micro_batches += result.microlotes
+                totals += batch.num_graphs * np.array(
+                    [result.total, result.algoritmo, result.familia]
+                )
                 graphs_seen += batch.num_graphs
             metrics: dict[str, float] = {
                 "perdida": totals[0] / max(graphs_seen, 1),
@@ -395,6 +418,8 @@ def train_block(
                 "perdida_familia": totals[2] / max(graphs_seen, 1),
                 "tasa_aprendizaje": optimizer.param_groups[0]["lr"],
                 "segundos_entrenamiento": time.perf_counter() - epoch_start,
+                "microlote_nodos": stepper.micro_nodes,
+                "microlotes_por_lote": micro_batches / max(batches, 1),
             }
             last = epoch + 1 == training.epocas
             if last or (epoch + 1) % training.evaluar_cada == 0:
@@ -415,6 +440,7 @@ def train_block(
                     "optimizador": optimizer.state_dict(),
                     "escalador": scaler.state_dict(),
                     "historial": history,
+                    "microlote": stepper.micro_nodes,
                 },
             )
             logger.info(

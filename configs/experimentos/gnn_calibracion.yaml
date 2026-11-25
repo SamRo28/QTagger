@@ -1,0 +1,64 @@
+# Phase 12 (before the search): calibration of the GNN on this machine (qcclass calibrar-gnn).
+# 1. Memory: peak GPU memory per node of training micro-batches of `microlote_medida` nodes
+#    for the `diseno` configurations; a linear model is fitted and saved as
+#    results/medicion/memoria_gnn_<machine>.json (used to choose the micro-batch of every run).
+# 2. Time: real seconds per epoch (training with the chosen micro-batches, evaluation of the
+#    held-out block) and hours per trial of the `estimar` configurations.
+# Only the train part and the held-out block of `bloque` of the cross-validation; never test.
+
+nombre: gnn_calibracion
+experimento_mlflow: gnn_fase12_pruebas
+semilla: 42
+bloque: 0
+
+entrenamiento:                         # as in gnn_busqueda.yaml (fixed part)
+  epocas: 100
+  tasa_aprendizaje: 1.0e-3
+  regularizacion_pesos: 1.0e-4
+  calentamiento: 0.05
+  presupuesto_nodos: 100000
+  precision_mixta: true
+  variante_aristas: completo
+  evaluar_cada: 10
+
+memoria:
+  microlote_medida: 25000              # micro-batch of the memory measurements
+  lotes: 4                             # micro-batches measured per configuration
+  memoria_util_mb: 3300                # useful memory of the GPU
+  margen: 1.15                         # predicted peak x margin must stay below it
+  microlote_minimo: 20000
+
+tiempo:
+  lotes: 8                             # whole batches (100 000 nodes) timed per configuration
+  lotes_evaluacion: 3
+  bloques: 5                           # hours per trial = bloques x (epochs x s/epoch + evaluations)
+  epocas: [50, 100, 150]
+
+# Configurations of the memory fit (the rest of the model settings: as in the search).
+diseno:
+  - {tipo_capa: gine, dim: 64, capas: 3, nodo_virtual: false, agregacion: media_max}
+  - {tipo_capa: gine, dim: 128, capas: 3, nodo_virtual: false, agregacion: media_max}
+  - {tipo_capa: gine, dim: 64, capas: 8, nodo_virtual: false, agregacion: media_max}
+  - {tipo_capa: gine, dim: 128, capas: 8, nodo_virtual: true, agregacion: atencion}
+  - {tipo_capa: gine, dim: 64, capas: 5, nodo_virtual: true, agregacion: media_max}
+  - {tipo_capa: gine, dim: 128, capas: 5, nodo_virtual: false, agregacion: atencion}
+  - {tipo_capa: gatv2, dim: 64, capas: 3, nodo_virtual: false, agregacion: media_max}
+  - {tipo_capa: gatv2, dim: 128, capas: 3, nodo_virtual: true, agregacion: atencion}
+  - {tipo_capa: gatv2, dim: 64, capas: 8, nodo_virtual: false, agregacion: atencion}
+  - {tipo_capa: gatv2, dim: 128, capas: 8, nodo_virtual: true, agregacion: atencion}
+  - {tipo_capa: gatv2, dim: 128, capas: 5, nodo_virtual: false, agregacion: media_max}
+  - {tipo_capa: gatv2, dim: 64, capas: 5, nodo_virtual: true, agregacion: atencion}
+
+# Configurations whose time per epoch and per trial is reported.
+estimar:
+  gine_64x3: {tipo_capa: gine, dim: 64, capas: 3, nodo_virtual: false, agregacion: media_max}
+  gine_128x8: {tipo_capa: gine, dim: 128, capas: 8, nodo_virtual: true, agregacion: atencion}
+  gatv2_64x3: {tipo_capa: gatv2, dim: 64, capas: 3, nodo_virtual: false, agregacion: media_max}
+  gatv2_128x8: {tipo_capa: gatv2, dim: 128, capas: 8, nodo_virtual: true, agregacion: atencion}
+  media_gine_128x5: {tipo_capa: gine, dim: 128, capas: 5, nodo_virtual: true, agregacion: media_max}
+  media_gatv2_64x5: {tipo_capa: gatv2, dim: 64, capas: 5, nodo_virtual: false, agregacion: atencion}
+
+fijos_modelo:
+  dropout: 0.0
+  jumping_knowledge: true
+  cabezas_atencion: 4
