@@ -655,3 +655,10 @@ def test_cpu_threads_leave_free_cores(monkeypatch) -> None:
         assert configure_cpu_threads("cuda") is None
     finally:
         torch.set_num_threads(before)
+
+
+def test_missing_graphs_give_a_clear_error(tmp_path: Path) -> None:
+    from qcclass.modelos.lotes import graph_sizes
+
+    with pytest.raises(ValueError, match="graphs are missing"):
+        graph_sizes(tmp_path / "dag")

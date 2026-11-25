@@ -30,8 +30,16 @@ def graph_sizes(directory: Path) -> pd.Series:
 
     Read from the ``n_nodos`` column of ``indice.csv``. If an older index lacks it, every
     graph is loaded once, the column is added to ``indice.csv`` and later calls read it.
+
+    Raises:
+        ValueError: if ``indice.csv`` does not exist (graphs not copied to this machine).
     """
     path = Path(directory) / INDEX_FILE
+    if not path.is_file():
+        raise ValueError(
+            f"{path} does not exist: the graphs are missing on this machine (copy data/graphs "
+            "with rsync, see docs/EQUIPOS.md; qcclass verificar does not check them)"
+        )
     index = pd.read_csv(path, dtype={"id": str}, keep_default_na=False)
     if NODES_COLUMN not in index.columns:
         logger.warning("%s has no %s column: computing it once", path, NODES_COLUMN)
