@@ -68,7 +68,33 @@ QCCLASS_MLFLOW_URI=http://127.0.0.1:5050
 QCCLASS_OPTUNA_STORAGE=grpc://127.0.0.1:13000
 ```
 
-Comprobación desde cualquier equipo: `qcclass ping` (o `make ping`).
+Variables opcionales de cualquier cliente (valores por defecto entre paréntesis):
+
+```bash
+QCCLASS_PROCESOS_CARGA=4              # procesos de carga de datos de la GNN (4); 0 = ninguno
+QCCLASS_REINTENTO_ESPERA_INICIAL=1    # primera espera ante un corte del servidor, en s (1)
+QCCLASS_REINTENTO_ESPERA_MAXIMA=60    # espera máxima entre dos intentos, en s (60)
+QCCLASS_REINTENTO_TOTAL=600           # tiempo total de reintentos antes de fallar, en s (600)
+```
+
+Comprobación desde cualquier equipo: `qcclass ping` (o `make ping`); `ping` no reintenta.
+
+### Cortes de los servidores
+
+Todas las llamadas a MLflow y a Optuna se reintentan con espera exponencial (1, 2, 4… s,
+hasta 60 s entre intentos y unos 10 minutos en total). Además, mientras se entrena la GNN:
+
+- lo que hay que registrar en MLflow se guarda en local (`<resultados>/gnn/…/mlflow/`) y se
+  envía en cuanto el servidor responde; el entrenamiento no se detiene. Solo falla al final
+  si el servidor sigue sin responder tras los reintentos, y lo pendiente se conserva: al
+  relanzar el mismo comando se envía a la misma ejecución de MLflow;
+- los valores intermedios de Optuna se guardan en local y se envían después (mientras haya
+  pendientes no se recorta el intento);
+- al relanzar una búsqueda, los intentos que este equipo dejó a medias se marcan como
+  fallidos y se vuelven a encolar con los mismos hiperparámetros (como mucho 3 veces
+  seguidas): sus puntos de guardado se identifican por la huella de los hiperparámetros y
+  el bloque, así que continúan desde la última época. El proxy gRPC de Optuna no tiene
+  latido (*heartbeat*), por eso se hace al relanzar.
 
 ## Servidores (`m1pro`)
 
@@ -162,3 +188,9 @@ Los comandos concretos de cada fase se añaden aquí cuando existan.
   relanzando el mismo comando). En el `m3pro`, con el cargador conectado:
   `caffeinate -i nohup .venv/bin/qcclass linea-base > logs/linea_base.log 2>&1 &` y progreso con
   `tail -f logs/linea_base.log` o en MLflow (experimento `linea_base_v1`).
+- **Fase 11 (GNN, `rtx3050`).** Comprobaciones de minutos, en tmux:
+  - `qcclass entrenar-gnn --bloque 0`: configuración de referencia
+    (`configs/experimentos/gnn_referencia.yaml`, 100 épocas) en el bloque 0. Resultados en
+    `results/gnn/gnn_referencia/<huella>/bloque_0/`; MLflow, experimento `gnn_fase11`.
+  - `qcclass comprobar-precision-mixta`: la misma con y sin precisión mixta; escribe
+    `results/gnn/precision_mixta.json`. Reutiliza el entrenamiento anterior si ya existe.

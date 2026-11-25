@@ -161,7 +161,7 @@ def _wait_ready(settings: ServerSettings, timeout: float) -> list[str]:
         except ServerConnectionError as exc:
             problems.append(str(exc))
         try:
-            connect(settings.local_optuna_uri, timeout=2)
+            connect(settings.local_optuna_uri, timeout=2, retries=False)
         except ServerConnectionError as exc:
             problems.append(str(exc))
         if not problems or time.monotonic() > deadline:
@@ -246,7 +246,13 @@ def status(settings: ServerSettings) -> dict[str, str]:
         result[service] = f"running (pid {pid})" if pid else "stopped"
     for service, check in (
         ("mlflow", lambda: f"MLflow {check_mlflow(settings.local_mlflow_uri)}"),
-        ("optuna", lambda: f"{len(connect(settings.local_optuna_uri).get_all_studies())} studies"),
+        (
+            "optuna",
+            lambda: (
+                f"{len(connect(settings.local_optuna_uri, retries=False).get_all_studies())}"
+                " studies"
+            ),
+        ),
     ):
         if running_pid(settings, service):
             try:

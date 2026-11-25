@@ -1,8 +1,11 @@
 """MLflow client: connection check and runs that always carry their provenance.
 
 Only remote tracking servers (``http://`` or ``https://``) are accepted, and the server is
-checked (``/health``) before any run starts: if it cannot be reached the program aborts with
-:class:`~qcclass.seguimiento.entorno.ServerConnectionError` instead of logging locally.
+checked (``/health``, with the retries of ``seguimiento.reintentos``) before any run starts:
+if it cannot be reached the program aborts with
+:class:`~qcclass.seguimiento.entorno.ServerConnectionError` instead of logging locally. Runs
+are :class:`~qcclass.seguimiento.registro.ResilientRun` objects: what they log is queued and
+sent with retries, so a short cut of the server does not lose anything.
 
 Every run records the dataset version and fingerprint, the git commit (and whether the
 working tree had uncommitted changes), the machine, its hardware description and the full
@@ -26,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 CHECK_TIMEOUT = 5  # seconds
 REQUEST_TIMEOUT = "60"  # seconds per MLflow HTTP request
-REQUEST_RETRIES = "3"
+REQUEST_RETRIES = "1"  # MLflow's own retries; ours (seguimiento.reintentos) come on top
 PARAM_LIMIT = 6000  # MLflow limit on parameter values
 
 
@@ -61,13 +64,29 @@ def check_mlflow(uri: str, timeout: float = CHECK_TIMEOUT) -> str:
         raise ServerConnectionError(f"cannot reach MLflow at {uri}: {exc}") from exc
 
 
-def configure_mlflow() -> str:
-    """Check the server and point MLflow at it; return the URI."""
-    uri = tracking_uri()
-    check_mlflow(uri)
+def configure_client_environment() -> None:
+    """Timeouts and retries of MLflow's HTTP client (set before MLflow reads them)."""
     os.environ.setdefault("MLFLOW_HTTP_REQUEST_TIMEOUT", REQUEST_TIMEOUT)
     os.environ.setdefault("MLFLOW_HTTP_REQUEST_MAX_RETRIES", REQUEST_RETRIES)
     os.environ.setdefault("MLFLOW_DISABLE_AGENT_HINT", "1")
+
+
+def wait_for_mlflow(uri: str) -> str:
+    """:func:`check_mlflow` with retries; return the server version.
+
+    Raises:
+        ServerConnectionError: if the server is still unreachable after the retries.
+    """
+    from qcclass.seguimiento.reintentos import retry
+
+    return retry(lambda: check_mlflow(uri), what="MLflow")
+
+
+def configure_mlflow() -> str:
+    """Check the server (with retries) and point MLflow at it; return the URI."""
+    uri = tracking_uri()
+    wait_for_mlflow(uri)
+    configure_client_environment()
     import mlflow
 
     mlflow.set_tracking_uri(uri)
@@ -117,22 +136,33 @@ def tracked_run(
     configuration: Mapping[str, Any],
     provenance: Mapping[str, str],
     machine_description: Mapping[str, Any],
+    spool: Path | None = None,
 ) -> Iterator[Any]:
     """MLflow run with provenance tags, the configuration and the machine description.
 
     ``provenance`` holds the dataset stamp, the git state and the machine name (tags);
     ``configuration`` is logged flattened as parameters and whole as ``configuracion.json``.
+    Yields a :class:`~qcclass.seguimiento.registro.ResilientRun` (``log_metric``,
+    ``log_metrics``, ``log_params``, ``log_artifact``, ``log_artifacts``, ``log_dict``); the
+    run is created before the body runs and everything is sent when it ends (status
+    ``FAILED`` if the body raises). ``spool`` keeps the local queue (default: temporary).
 
     Raises:
-        ServerConnectionError: if the server is not configured or cannot be reached.
+        ServerConnectionError: if the server is not configured or still unreachable after
+            the retries (at the start or at the end).
     """
-    configure_mlflow()
-    import mlflow
+    from qcclass.seguimiento.registro import ResilientRun
 
-    mlflow.set_experiment(experiment)
-    with mlflow.start_run(run_name=run_name, tags=dict(provenance)) as run:
-        mlflow.log_params(flatten(configuration))
-        mlflow.log_dict(dict(configuration), "configuracion.json")
-        mlflow.log_dict(dict(machine_description), "equipo.json")
-        logger.info("MLflow run %s (%s) in experiment %s", run.info.run_id, run_name, experiment)
+    uri = configure_mlflow()
+    run = ResilientRun(experiment=experiment, run_name=run_name, tags=dict(provenance), spool=spool)
+    run.log_params(flatten(configuration))
+    run.log_dict(dict(configuration), "configuracion.json")
+    run.log_dict(dict(machine_description), "equipo.json")
+    run.flush(block=True)
+    logger.debug("MLflow run %s at %s", run.run_id, uri)
+    try:
         yield run
+    except BaseException:
+        run.finish("FAILED")
+        raise
+    run.finish("FINISHED")

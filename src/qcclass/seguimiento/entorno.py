@@ -8,6 +8,9 @@ Client variables (every machine that runs experiments):
 * ``QCCLASS_EQUIPO``: machine name recorded with every run (``m3pro``, ``rtx3050``...).
 * ``QCCLASS_MLFLOW_URI``: tracking server, e.g. ``http://192.168.1.133:5050``.
 * ``QCCLASS_OPTUNA_STORAGE``: shared Optuna storage, e.g. ``grpc://192.168.1.133:13000``.
+* Optional: ``QCCLASS_PROCESOS_CARGA`` (GNN data-loading processes, 4) and the retry waits
+  ``QCCLASS_REINTENTO_ESPERA_INICIAL`` / ``_ESPERA_MAXIMA`` / ``_TOTAL`` (1, 60, 600 s; see
+  ``seguimiento.reintentos``).
 
 Server variables (only the machine that runs ``qcclass servidores``):
 

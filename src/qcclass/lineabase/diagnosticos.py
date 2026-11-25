@@ -877,8 +877,6 @@ def run_diagnostics(
 
 def log_diagnostics(ctx: StudyContext, config: DiagnosticsConfig, result: dict, path: Path) -> None:
     """MLflow run ``<nombre>.diagnosticos`` with the headline numbers and both files."""
-    import mlflow
-
     from qcclass.seguimiento.mlflow_cliente import tracked_run
 
     with tracked_run(
@@ -887,21 +885,21 @@ def log_diagnostics(ctx: StudyContext, config: DiagnosticsConfig, result: dict, 
         configuration={"diagnosticos": config.raw},
         provenance={**ctx.provenance.tags, "estudio": "diagnosticos"},
         machine_description=ctx.provenance.machine_description,
-    ):
+    ) as run:
         if shuffle := result.get("barajado"):
-            mlflow.log_metric("barajado_f1_macro_media", shuffle["f1_macro_media"])
-            mlflow.log_metric("barajado_f1_macro_max", shuffle["f1_macro_max"])
+            run.log_metric("barajado_f1_macro_media", shuffle["f1_macro_media"])
+            run.log_metric("barajado_f1_macro_max", shuffle["f1_macro_max"])
         for h, entry in (result.get("gemelos") or {}).items():
-            mlflow.log_metric(f"gemelos_{h}_con_gemelo", entry["con_gemelo"])
-            mlflow.log_metric(f"gemelos_{h}_otra_clase", entry["gemelo_otra_clase"])
+            run.log_metric(f"gemelos_{h}_con_gemelo", entry["con_gemelo"])
+            run.log_metric(f"gemelos_{h}_otra_clase", entry["gemelo_otra_clase"])
             for rung, f in entry["finalistas"].items():
                 for part in ("con_gemelo", "sin_gemelo"):
                     value = f[part]["macro"]["valor"]
                     if np.isfinite(value):
-                        mlflow.log_metric(f"gemelos_{h}_{rung}_{part}_f1_macro", value)
+                        run.log_metric(f"gemelos_{h}_{rung}_{part}_f1_macro", value)
         for rung, levels in (result.get("niveles") or {}).items():
             for level in LEVELS:
                 if np.isfinite(levels[level]["valor"]):
-                    mlflow.log_metric(f"nivel_{rung}_{level}_f1_macro", levels[level]["valor"])
-        mlflow.log_artifact(str(path))
-        mlflow.log_artifact(str(path.with_suffix(".json")))
+                    run.log_metric(f"nivel_{rung}_{level}_f1_macro", levels[level]["valor"])
+        run.log_artifact(str(path))
+        run.log_artifact(str(path.with_suffix(".json")))

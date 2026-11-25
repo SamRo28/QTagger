@@ -41,6 +41,7 @@ DEFAULT_SERVER_TEST_CONFIG = Path("configs/experimentos/prueba_servidores.yaml")
 DEFAULT_BASELINE_CONFIG = Path("configs/experimentos/linea_base.yaml")
 DEFAULT_EVALUATION_CONFIG = Path("configs/evaluacion.yaml")
 DEFAULT_DIAGNOSTICS_CONFIG = Path("configs/experimentos/diagnosticos_linea_base.yaml")
+DEFAULT_GNN_CONFIG = Path("configs/experimentos/gnn_referencia.yaml")
 
 
 def _split_list(value: str | None) -> list[str] | None:
@@ -449,7 +450,7 @@ def ping(config: ConfigOption = DEFAULT_DATASET_CONFIG) -> None:
         failures += 1
     try:
         uri = storage_uri()
-        studies = study_summary(connect(uri))
+        studies = study_summary(connect(uri, retries=False))
         typer.echo(f"Optuna {uri}: ok, {len(studies)} studies")
     except ServerConnectionError as exc:
         typer.echo(f"Optuna: FAILED: {exc}", err=True)
@@ -639,6 +640,108 @@ def _print_measurement(result: dict) -> None:
         )
     if sweep := result["barrido"]:
         typer.echo(f"Largest working budget: {sweep['mayor_presupuesto_ok']}")
+
+
+@app.command("entrenar-gnn")
+def entrenar_gnn(
+    config: ConfigOption = DEFAULT_DATASET_CONFIG,
+    splits: SplitsOption = DEFAULT_SPLITS_CONFIG,
+    experimento: Annotated[Path, typer.Option(help="GNN experiment configuration.")] = (
+        DEFAULT_GNN_CONFIG
+    ),
+    bloque: Annotated[int, typer.Option(help="Cross-validation block held out.")] = 0,
+    dispositivo: Annotated[str, typer.Option(help="auto (CUDA, else CPU), cuda, cpu, mps.")] = (
+        "auto"
+    ),
+    sin_precision_mixta: Annotated[
+        bool, typer.Option("--sin-precision-mixta", help="Train in float32 on CUDA.")
+    ] = False,
+    procesos: Annotated[
+        int | None, typer.Option(help="Data-loading processes (default QCCLASS_PROCESOS_CARGA).")
+    ] = None,
+    max_lotes: Annotated[
+        int | None, typer.Option(help="Truncate every epoch to N batches (quick checks).")
+    ] = None,
+    epocas: Annotated[int | None, typer.Option(help="Override the number of epochs.")] = None,
+) -> None:
+    """Phase 11: train the GNN on one block of the cross-validation (never the test set);
+    resumes from its checkpoints when launched again."""
+    from dataclasses import replace
+
+    from qcclass.config import ConfigError
+    from qcclass.entrenamiento.gnn_experimento import load_gnn_experiment, train_one_block
+    from qcclass.seguimiento.entorno import ServerConnectionError, load_env
+    from qcclass.versionado import VersionError
+
+    dataset = _load_dataset_config(config)
+    split_config = _load_splits_config(splits, dataset)
+    try:
+        experiment = load_gnn_experiment(experimento)
+        training = experiment.training
+        if sin_precision_mixta:
+            training = replace(training, precision_mixta=False)
+        if epocas is not None:
+            training = replace(training, epocas=epocas)
+        load_env(dataset.rutas.raiz)
+        result = train_one_block(
+            dataset,
+            split_config,
+            experiment,
+            block=bloque,
+            device=dispositivo,
+            training=training,
+            workers=procesos,
+            max_batches=max_lotes,
+        )
+    except (ConfigError, ServerConnectionError, VersionError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    epochs = [h["segundos_epoca"] for h in result.history]
+    typer.echo(
+        f"Block {result.block}: algorithm macro F1 {100 * result.f1_macro_algoritmo:.1f} %, "
+        f"family {100 * result.f1_macro_familia:.1f} %, {len(epochs)} epochs, median "
+        f"{sorted(epochs)[len(epochs) // 2]:.1f} s/epoch, total {result.seconds / 60:.1f} min"
+    )
+    typer.echo(f"Results: {result.directory}")
+
+
+@app.command("comprobar-precision-mixta")
+def comprobar_precision_mixta(
+    config: ConfigOption = DEFAULT_DATASET_CONFIG,
+    splits: SplitsOption = DEFAULT_SPLITS_CONFIG,
+    experimento: Annotated[Path, typer.Option(help="GNN experiment configuration.")] = (
+        DEFAULT_GNN_CONFIG
+    ),
+    procesos: Annotated[
+        int | None, typer.Option(help="Data-loading processes (default QCCLASS_PROCESOS_CARGA).")
+    ] = None,
+) -> None:
+    """Phase 11: reference configuration on its block with and without mixed precision (CUDA)."""
+    from qcclass.config import ConfigError
+    from qcclass.entrenamiento.gnn_experimento import check_mixed_precision, load_gnn_experiment
+    from qcclass.seguimiento.entorno import ServerConnectionError, load_env
+    from qcclass.versionado import VersionError
+
+    dataset = _load_dataset_config(config)
+    split_config = _load_splits_config(splits, dataset)
+    try:
+        experiment = load_gnn_experiment(experimento)
+        load_env(dataset.rutas.raiz)
+        report = check_mixed_precision(dataset, split_config, experiment, workers=procesos)
+    except (ConfigError, ServerConnectionError, VersionError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    for key in ("con", "sin"):
+        r = report[key]
+        typer.echo(
+            f"{key} precision mixta: F1 {100 * r['f1_macro_algoritmo']:.2f} %, "
+            f"{r['segundos_epoca_mediana']:.1f} s/epoch, {r['memoria_gpu_mb_max']:.0f} MB"
+        )
+    verdict = "keep it" if report["mantener_precision_mixta"] else "TURN IT OFF"
+    typer.echo(
+        f"Difference {100 * report['diferencia_f1_macro_algoritmo']:+.2f} points "
+        f"(tolerance {100 * report['tolerancia_f1']:.0f}): {verdict}"
+    )
 
 
 @app.command("diagnosticos-linea-base")

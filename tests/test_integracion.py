@@ -82,6 +82,16 @@ def test_measurement_on_the_mini_dataset(repo_root: Path, tmp_path: Path) -> Non
     assert not (config.rutas.resultados / "accesos_test.log").exists()
 
 
+SERVER_VARIABLES = (
+    "QCCLASS_MLFLOW_URI",
+    "QCCLASS_OPTUNA_STORAGE",
+    "QCCLASS_EQUIPO",
+    "QCCLASS_SERVIDORES_DIR",
+    "QCCLASS_SERVIDORES_HOST",
+    "QCCLASS_MLFLOW_PUERTO",
+    "QCCLASS_OPTUNA_PUERTO",
+)
+
 MINI_BASELINE = """
 nombre: lb_mini
 experimento_mlflow: lb_mini
@@ -131,8 +141,9 @@ def test_baseline_on_the_mini_dataset(
             sock.bind(("127.0.0.1", 0))
             return sock.getsockname()[1]
 
-    for name in ("QCCLASS_MLFLOW_URI", "QCCLASS_OPTUNA_STORAGE", "QCCLASS_EQUIPO"):
+    for name in SERVER_VARIABLES:  # .env values of an earlier test stay in os.environ
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("QCCLASS_REINTENTO_TOTAL", "60")  # real servers may start slowly
     dataset_yaml, splits_yaml = _mini_configs(repo_root, tmp_path)
     config_args = ["--config", str(dataset_yaml)]
     runner = CliRunner()
@@ -162,5 +173,67 @@ def test_baseline_on_the_mini_dataset(
         assert not (config.rutas.resultados / "accesos_test.log").exists()
         again = runner.invoke(app, [*args, "--experimento", str(experiment), "--peldanos", "e7"])
         assert again.exit_code == 0 and again.output.count("CV macro F1") == 6  # resumed
+    finally:
+        runner.invoke(app, ["servidores", "parar", *config_args])
+
+
+@pytest.mark.slow
+def test_gnn_on_the_mini_dataset(
+    repo_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``qcclass entrenar-gnn`` on CPU (2 epochs) with a real MLflow server; launching it
+    again finds the finished block."""
+    import json
+    import socket
+
+    def free_port() -> int:
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            return sock.getsockname()[1]
+
+    for name in SERVER_VARIABLES:  # .env values of an earlier test stay in os.environ
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("QCCLASS_REINTENTO_TOTAL", "60")  # real servers may start slowly
+    dataset_yaml, splits_yaml = _mini_configs(repo_root, tmp_path)
+    config_args = ["--config", str(dataset_yaml)]
+    runner = CliRunner()
+    assert runner.invoke(app, ["todo", *config_args, "--splits", str(splits_yaml)]).exit_code == 0
+    assert runner.invoke(app, ["versionar", *config_args, "--nombre", "m"]).exit_code == 0
+    mlflow_port, optuna_port = free_port(), free_port()
+    (tmp_path / ".env").write_text(
+        f"QCCLASS_EQUIPO=ci\nQCCLASS_SERVIDORES_DIR={tmp_path / 'servidores'}\n"
+        f"QCCLASS_SERVIDORES_HOST=127.0.0.1\nQCCLASS_MLFLOW_PUERTO={mlflow_port}\n"
+        f"QCCLASS_OPTUNA_PUERTO={optuna_port}\n"
+        f"QCCLASS_MLFLOW_URI=http://127.0.0.1:{mlflow_port}\n"
+        f"QCCLASS_OPTUNA_STORAGE=grpc://127.0.0.1:{optuna_port}\n"
+    )
+    args = [
+        "entrenar-gnn",
+        *config_args,
+        "--splits",
+        str(splits_yaml),
+        "--dispositivo",
+        "cpu",
+        "--epocas",
+        "2",
+        "--procesos",
+        "0",
+        "--bloque",
+        "1",
+    ]
+    try:
+        started = runner.invoke(app, ["servidores", "arrancar", *config_args])
+        assert started.exit_code == 0, started.output
+        result = runner.invoke(app, args)
+        assert result.exit_code == 0, result.output
+        assert "Block 1: algorithm macro F1" in result.output and "2 epochs" in result.output
+        directory = Path(result.output.split("Results: ")[1].strip())
+        stored = json.loads((directory / "resultado.json").read_text())
+        assert len(stored["historial"]) == 2 and stored["identidad"]["bloque"] == 1
+        assert not json.loads((directory / "mlflow" / "pendientes.json").read_text())
+        again = runner.invoke(app, args)
+        assert again.exit_code == 0 and str(directory) in again.output
+        config = load_dataset_config(dataset_yaml)
+        assert not (config.rutas.resultados / "accesos_test.log").exists()
     finally:
         runner.invoke(app, ["servidores", "parar", *config_args])

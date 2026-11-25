@@ -150,13 +150,11 @@ def run_baseline(
             configuration={"linea_base": baseline.raw, "finalistas": list(best["estudio"])},
             provenance={**provenance.tags, "estudio": "resumen"},
             machine_description=provenance.machine_description,
-        ):
-            import mlflow
-
-            mlflow.log_artifact(str(path))
-            mlflow.log_artifact(str(output / SUMMARY_TABLE))
+        ) as run:
+            run.log_artifact(str(path))
+            run.log_artifact(str(output / SUMMARY_TABLE))
             for rung in importances:
-                mlflow.log_artifact(str(output / f"importancia_{rung}.csv"))
+                run.log_artifact(str(output / f"importancia_{rung}.csv"))
     return BaselineRun(results, table, best, path)
 
 

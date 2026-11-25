@@ -14,6 +14,14 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 ConfigFactory = Callable[..., DatasetConfig]
 
 
+@pytest.fixture(autouse=True)
+def short_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Server retries of a fraction of a second (production: about 10 minutes)."""
+    monkeypatch.setenv("QCCLASS_REINTENTO_ESPERA_INICIAL", "0.05")
+    monkeypatch.setenv("QCCLASS_REINTENTO_ESPERA_MAXIMA", "0.1")
+    monkeypatch.setenv("QCCLASS_REINTENTO_TOTAL", "0.3")
+
+
 @pytest.fixture
 def repo_root() -> Path:
     """Repository root directory."""

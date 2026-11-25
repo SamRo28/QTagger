@@ -67,13 +67,11 @@ def run_server_test(config: DatasetConfig, settings: dict[str, Any]) -> ServerTe
         study.optimize(
             lambda trial: _objective(trial, provenance.machine), n_trials=settings["intentos"]
         )
-        import mlflow
-
-        mlflow.log_metric("mejor_valor_estudio", study.best_value)
+        run.log_metric("mejor_valor_estudio", study.best_value)
         complete = study.get_trials(states=(optuna.trial.TrialState.COMPLETE,))
         by_machine = Counter(t.user_attrs.get(MACHINE_ATTR, "?") for t in complete)
-        mlflow.log_dict(dict(by_machine), "intentos_por_equipo.json")
-        run_id = run.info.run_id
+        run.log_dict(dict(by_machine), "intentos_por_equipo.json")
+        run_id = run.run_id
     return ServerTestResult(
         experiment=experiment,
         run_id=run_id,

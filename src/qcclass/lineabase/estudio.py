@@ -284,8 +284,6 @@ def run_study(
 
 
 def _log_study(ctx: StudyContext, result: dict, space: dict, folder: Path) -> None:
-    import mlflow
-
     configuration = {
         "estudio": result["estudio"],
         "peldano": result["peldano"],
@@ -301,13 +299,13 @@ def _log_study(ctx: StudyContext, result: dict, space: dict, folder: Path) -> No
         configuration=configuration,
         provenance={**ctx.provenance.tags, "estudio": result["estudio"]},
         machine_description=ctx.provenance.machine_description,
-    ):
-        mlflow.log_metric("cv_f1_macro", result["cv_f1_macro"])
+    ) as run:
+        run.log_metric("cv_f1_macro", result["cv_f1_macro"])
         if result["cv_f1_macro_desviacion"] is not None:
-            mlflow.log_metric("cv_f1_macro_desviacion", result["cv_f1_macro_desviacion"])
+            run.log_metric("cv_f1_macro_desviacion", result["cv_f1_macro_desviacion"])
         for metric, values in result["oof"].items():
-            mlflow.log_metric(f"oof_{metric}", values["valor"])
-            mlflow.log_metric(f"oof_{metric}_ic_inf", values["ic_inf"])
-            mlflow.log_metric(f"oof_{metric}_ic_sup", values["ic_sup"])
-        mlflow.log_metric("segundos_busqueda", result["segundos_busqueda"])
-        mlflow.log_artifacts(str(folder))
+            run.log_metric(f"oof_{metric}", values["valor"])
+            run.log_metric(f"oof_{metric}_ic_inf", values["ic_inf"])
+            run.log_metric(f"oof_{metric}_ic_sup", values["ic_sup"])
+        run.log_metric("segundos_busqueda", result["segundos_busqueda"])
+        run.log_artifacts(str(folder))

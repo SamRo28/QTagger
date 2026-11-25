@@ -1,0 +1,34 @@
+# Phase 11: reference configuration of the GNN (qcclass entrenar-gnn and
+# qcclass comprobar-precision-mixta). Trained on one cross-validation block of train + val of
+# `aleatorio` (data/splits/aleatorio_bloques.csv); never the test set.
+
+nombre: gnn_referencia
+experimento_mlflow: gnn_fase11
+semilla: 42
+
+modelo:                                # GNNConfig (src/qcclass/modelos/gnn.py)
+  tipo_capa: gine                      # gine | gatv2
+  dim: 64
+  capas: 3
+  dropout: 0.0
+  nodo_virtual: false
+  agregacion: media_max                # media_max | atencion
+  jumping_knowledge: true
+  cabezas_atencion: 4                  # gatv2 only
+
+entrenamiento:                         # TrainingSettings (src/qcclass/entrenamiento/gnn.py)
+  epocas: 100
+  tasa_aprendizaje: 1.0e-3             # AdamW, linear warm-up then cosine to 0
+  regularizacion_pesos: 1.0e-4
+  lambda_familia: 1.0
+  calentamiento: 0.05                  # fraction of the epochs
+  presupuesto_nodos: 100000            # nodes per batch
+  precision_mixta: true                # CUDA only; see comprobar-precision-mixta
+  variante_aristas: completo           # completo | solo_adelante | sin_direccion | sin_rol | sin_angulos
+  evaluar_cada: 1                      # held-out macro F1 every N epochs (and at the end)
+
+# Mixed-precision check (plan, phase 11 task 5): both runs on this block; if the algorithm
+# macro F1 differs by more than the tolerance, mixed precision is turned off by default.
+comprobacion_precision_mixta:
+  bloque: 0
+  tolerancia_f1: 0.01
