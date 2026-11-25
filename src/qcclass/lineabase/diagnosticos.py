@@ -294,8 +294,8 @@ def wl_fingerprints(ctx: StudyContext, hs: tuple[int, ...]) -> pd.DataFrame:
 
 
 def twin_flags(ctx: StudyContext, fingerprints: pd.DataFrame, h: int) -> pd.DataFrame:
-    """Per held-out circuit: has a twin in its block's training part, and whether a twin
-    belongs to another class."""
+    """Per held-out circuit: has a twin in its block's training part, whether a twin belongs
+    to another class, and which other classes (``otras_clases``, sorted target indices)."""
     rows = ctx.pool.rows
     prints = fingerprints.set_index("id").loc[rows["id"], f"h{h}"].to_numpy()
     y = rows[f"y_{TARGET}"].to_numpy()
@@ -315,10 +315,35 @@ def twin_flags(ctx: StudyContext, fingerprints: pd.DataFrame, h: int) -> pd.Data
                         t is not None and bool(t - {label})
                         for t, label in zip(twins, y[held_out], strict=True)
                     ],
+                    "otras_clases": [
+                        tuple(sorted(t - {label})) if t is not None else ()
+                        for t, label in zip(twins, y[held_out], strict=True)
+                    ],
                 }
             )
         )
     return pd.concat(parts, ignore_index=True)
+
+
+def _cross_twins(labelled: pd.DataFrame, names: tuple[str, ...]) -> list[dict[str, Any]]:
+    """Share of the held-out circuits of every class with a twin of each other class."""
+    sizes = labelled[f"y_{TARGET}"].value_counts()
+    pairs = (
+        labelled[[f"y_{TARGET}", "otras_clases"]].explode("otras_clases").dropna().value_counts()
+    )
+    return sorted(
+        (
+            {
+                "clase": names[int(a)],
+                "clase_gemelo": names[int(b)],
+                "n_clase": int(sizes[a]),
+                "circuitos": int(n),
+                "porcentaje": float(n / sizes[a]),
+            }
+            for (a, b), n in pairs.items()
+        ),
+        key=lambda r: (-r["circuitos"], r["clase"], r["clase_gemelo"]),
+    )
 
 
 def _predictions(ctx: StudyContext, study: str) -> pd.DataFrame:
@@ -355,6 +380,7 @@ def twins(
                 }
                 for c, r in by_class.iterrows()
             ],
+            "cruzados": _cross_twins(labelled, names),
             "finalistas": {},
         }
         for row in best.itertuples(index=False):
@@ -696,6 +722,22 @@ def report_markdown(result: dict[str, Any], header: dict[str, str]) -> str:
                         *[f"{p} {part}" for p in finals for part in ("con", "sin")],
                     ],
                     rows,
+                ),
+                "",
+                f"Gemelos de otra clase ({h}): circuitos de una clase con algún gemelo WL de "
+                "otra clase en la parte de entrenamiento de su bloque.",
+                "",
+                *_table(
+                    ["Clase", "Clase del gemelo", "Circuitos", "% de la clase"],
+                    [
+                        [
+                            c["clase"],
+                            c["clase_gemelo"],
+                            f"{c['circuitos']} de {c['n_clase']}",
+                            _pct(c["porcentaje"], 2),
+                        ]
+                        for c in entry.get("cruzados", [])
+                    ],
                 ),
                 "",
             ]
