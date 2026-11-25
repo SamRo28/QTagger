@@ -233,7 +233,36 @@ def test_gnn_on_the_mini_dataset(
         assert not json.loads((directory / "mlflow" / "pendientes.json").read_text())
         again = runner.invoke(app, args)
         assert again.exit_code == 0 and str(directory) in again.output
+        search = tmp_path / "busqueda.yaml"
+        search.write_text(
+            (repo_root / "configs/experimentos/gnn_prueba_reintentos.yaml")
+            .read_text()
+            .replace("valor: 20}", "valor: 2}")
+        )
+        searched = runner.invoke(
+            app,
+            [
+                "buscar-gnn",
+                *config_args,
+                "--splits",
+                str(splits_yaml),
+                "--experimento",
+                str(search),
+                "--dispositivo",
+                "cpu",
+                "--procesos",
+                "0",
+            ],
+        )
+        assert searched.exit_code == 0, searched.output
+        assert "1 trials, 1 complete" in searched.output
         config = load_dataset_config(dataset_yaml)
+        estimate = json.loads(
+            (
+                config.rutas.resultados / "gnn" / "gnn_prueba_reintentos" / "estimacion.json"
+            ).read_text()
+        )
+        assert estimate["intentos_terminados"] == 1
         assert not (config.rutas.resultados / "accesos_test.log").exists()
     finally:
         runner.invoke(app, ["servidores", "parar", *config_args])

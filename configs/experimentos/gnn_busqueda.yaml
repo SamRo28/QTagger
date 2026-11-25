@@ -1,0 +1,38 @@
+# Phase 12: hyperparameter search of the GNN (qcclass buscar-gnn). Study gnn_aleatorio_v1 in
+# the shared Optuna storage; objective = mean algorithm macro F1 over the 5 cross-validation
+# blocks of train + val of `aleatorio` (1 seed per block); never the test set.
+
+nombre: gnn_aleatorio_v1               # Optuna study and folder results/gnn/<nombre>/
+experimento_mlflow: gnn_aleatorio_v1
+semilla: 42
+intentos: 50
+bloques: null                          # null = the 5 blocks
+poda:
+  intentos_iniciales: 10               # MedianPruner: complete trials before pruning
+  informe_cada_epocas: 10              # block 0: intermediate value every N epochs
+estimacion:
+  tras_intentos: 10                    # estimate the remaining time from real trials
+  limite_horas: 48                     # above it: warning (decide on a second worker)
+
+espacio:                               # tipo: float (min, max, log), int, categorica, fijo
+  tipo_capa: {tipo: categorica, valores: [gine, gatv2]}
+  dim: {tipo: categorica, valores: [64, 128]}
+  capas: {tipo: int, min: 3, max: 8}
+  nodo_virtual: {tipo: categorica, valores: [true, false]}
+  agregacion: {tipo: categorica, valores: [media_max, atencion]}
+  lambda_familia: {tipo: float, min: 0.2, max: 1.0}
+  tasa_aprendizaje: {tipo: float, min: 1.0e-4, max: 3.0e-3, log: true}
+  dropout: {tipo: float, min: 0.0, max: 0.5}
+  regularizacion_pesos: {tipo: float, min: 1.0e-6, max: 1.0e-2, log: true}
+  epocas: {tipo: categorica, valores: [50, 100, 150]}
+
+fijos:
+  modelo:
+    jumping_knowledge: true
+    cabezas_atencion: 4
+  entrenamiento:
+    calentamiento: 0.05
+    presupuesto_nodos: 100000
+    precision_mixta: true              # kept after the phase 11 check (-0.08 points)
+    variante_aristas: completo
+    evaluar_cada: 10                   # held-out block every 10 epochs and at the last one

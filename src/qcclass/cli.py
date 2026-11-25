@@ -42,6 +42,7 @@ DEFAULT_BASELINE_CONFIG = Path("configs/experimentos/linea_base.yaml")
 DEFAULT_EVALUATION_CONFIG = Path("configs/evaluacion.yaml")
 DEFAULT_DIAGNOSTICS_CONFIG = Path("configs/experimentos/diagnosticos_linea_base.yaml")
 DEFAULT_GNN_CONFIG = Path("configs/experimentos/gnn_referencia.yaml")
+DEFAULT_GNN_SEARCH_CONFIG = Path("configs/experimentos/gnn_busqueda.yaml")
 
 
 def _split_list(value: str | None) -> list[str] | None:
@@ -702,7 +703,68 @@ def entrenar_gnn(
         f"family {100 * result.f1_macro_familia:.1f} %, {len(epochs)} epochs, median "
         f"{sorted(epochs)[len(epochs) // 2]:.1f} s/epoch, total {result.seconds / 60:.1f} min"
     )
+    peaks = {
+        key: max((h.get(key, 0.0) for h in result.history), default=0.0)
+        for key in ("memoria_gpu_mb", "memoria_gpu_reservada_mb", "ram_max_con_workers_mb")
+    }
+    train = [h["segundos_entrenamiento"] for h in result.history]
+    typer.echo(
+        f"Peaks: GPU {peaks['memoria_gpu_mb']:.0f} MB allocated, "
+        f"{peaks['memoria_gpu_reservada_mb']:.0f} MB reserved; RAM with workers "
+        f"{peaks['ram_max_con_workers_mb']:.0f} MB; training {sorted(train)[len(train) // 2]:.1f} "
+        "s/epoch (median, without evaluation)"
+    )
     typer.echo(f"Results: {result.directory}")
+
+
+@app.command("buscar-gnn")
+def buscar_gnn(
+    config: ConfigOption = DEFAULT_DATASET_CONFIG,
+    splits: SplitsOption = DEFAULT_SPLITS_CONFIG,
+    experimento: Annotated[Path, typer.Option(help="GNN search configuration.")] = (
+        DEFAULT_GNN_SEARCH_CONFIG
+    ),
+    dispositivo: Annotated[str, typer.Option(help="auto (CUDA, else CPU), cuda, cpu, mps.")] = (
+        "auto"
+    ),
+    procesos: Annotated[
+        int | None, typer.Option(help="Data-loading processes (default QCCLASS_PROCESOS_CARGA).")
+    ] = None,
+) -> None:
+    """Phase 12: Optuna search of the GNN with 5-block cross-validation (never the test set);
+    launching it again resumes the study and the interrupted trial."""
+    from qcclass.config import ConfigError
+    from qcclass.entrenamiento.busqueda_gnn import ESTIMATE_FILE, load_search_config, run_search
+    from qcclass.entrenamiento.gnn_experimento import OUTPUT_DIR
+    from qcclass.seguimiento.entorno import ServerConnectionError, load_env
+    from qcclass.seguimiento.optuna_cliente import connect
+    from qcclass.versionado import VersionError
+
+    dataset = _load_dataset_config(config)
+    split_config = _load_splits_config(splits, dataset)
+    try:
+        search = load_search_config(experimento)
+        load_env(dataset.rutas.raiz)
+        storage = connect()
+        study = run_search(
+            dataset, split_config, search, storage=storage, device=dispositivo, workers=procesos
+        )
+    except (ConfigError, ServerConnectionError, VersionError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    complete = study.get_trials(states=(optuna_state("COMPLETE"),))
+    typer.echo(f"Study {search.name}: {len(study.trials)} trials, {len(complete)} complete")
+    if complete:
+        best = study.best_trial
+        typer.echo(f"Best: trial {best.number}, CV macro F1 {100 * best.value:.2f} %")
+    typer.echo(f"Estimate: {dataset.rutas.resultados / OUTPUT_DIR / search.name / ESTIMATE_FILE}")
+
+
+def optuna_state(name: str):  # noqa: ANN201 - optuna.trial.TrialState
+    """Optuna trial state by name (imported lazily)."""
+    import optuna
+
+    return optuna.trial.TrialState[name]
 
 
 @app.command("comprobar-precision-mixta")

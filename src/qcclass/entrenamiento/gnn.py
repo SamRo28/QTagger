@@ -45,7 +45,7 @@ from qcclass.evaluacion.predicciones import make_table
 from qcclass.formatos.comun import UNKNOWN
 from qcclass.formatos.construir import DAG_DIR
 from qcclass.formatos.grafo_dag import NODE_FEATURES, IndexedGraphDataset
-from qcclass.medicion.equipo import nvidia_smi
+from qcclass.medicion.monitor import ResourceMonitor
 from qcclass.modelos.aristas import EDGE_DIM, EdgeTransform
 from qcclass.modelos.gnn import CircuitGNN, GNNConfig, MultiTaskLoss
 from qcclass.modelos.lotes import NodeBudgetBatchSampler, graph_sizes
@@ -58,6 +58,7 @@ PREDICTIONS_FILE = "predicciones.parquet"
 ARCHITECTURE_FILE = "arquitectura.json"
 CHECKPOINT_DIR = "puntos"
 DEVICES = ("auto", "cuda", "cpu", "mps")
+RAM_INTERVAL = 1.0  # seconds between RAM samples during training
 
 
 @dataclass(frozen=True)
@@ -197,17 +198,20 @@ def _loader(
     return loader, sampler
 
 
-def _gpu_readings(device: str) -> dict[str, float]:
-    if device != "cuda":
-        return {}
-    readings = {"memoria_gpu_mb": torch.cuda.max_memory_allocated() / 2**20}
-    torch.cuda.reset_peak_memory_stats()
-    temperature = nvidia_smi("temperature.gpu")
-    if temperature:
-        try:
-            readings["temperatura_gpu"] = float(temperature[0])
-        except ValueError:
-            pass
+def _resource_readings(device: str, monitor: ResourceMonitor) -> dict[str, float]:
+    """Peaks of the epoch: RAM (process, and with the loading workers), GPU memory allocated
+    and reserved by PyTorch, maximum GPU temperature."""
+    summary = monitor.reset().summary()
+    readings = {
+        "ram_max_mb": summary["ram_max_mb"],
+        "ram_max_con_workers_mb": summary["ram_max_con_workers_mb"],
+    }
+    if summary["temperatura_gpu_max"] is not None:
+        readings["temperatura_gpu"] = summary["temperatura_gpu_max"]
+    if device == "cuda":
+        readings["memoria_gpu_mb"] = torch.cuda.max_memory_allocated() / 2**20
+        readings["memoria_gpu_reservada_mb"] = torch.cuda.max_memory_reserved() / 2**20
+        torch.cuda.reset_peak_memory_stats()
     return readings
 
 
@@ -359,79 +363,91 @@ def train_block(
     model.train()
     if device == "cuda":
         torch.cuda.reset_peak_memory_stats()
-    for epoch in range(start, training.epocas):
-        epoch_start = time.perf_counter()
-        totals = np.zeros(3)
-        graphs_seen = 0
-        batches = len(sampler)
-        for step, batch in enumerate(train_loader):
-            factor = learning_rate_factor(
-                epoch + step / max(batches, 1), training.epocas, training.calentamiento
+    monitor = ResourceMonitor(
+        gpu_temperature=device == "cuda", ram_interval=RAM_INTERVAL, temperature_interval=10.0
+    )
+    monitor.__enter__()
+    try:
+        for epoch in range(start, training.epocas):
+            epoch_start = time.perf_counter()
+            totals = np.zeros(3)
+            graphs_seen = 0
+            batches = len(sampler)
+            for step, batch in enumerate(train_loader):
+                factor = learning_rate_factor(
+                    epoch + step / max(batches, 1), training.epocas, training.calentamiento
+                )
+                for group in optimizer.param_groups:
+                    group["lr"] = training.tasa_aprendizaje * factor
+                batch = batch.to(device, non_blocking=True)
+                optimizer.zero_grad(set_to_none=True)
+                with torch.autocast("cuda", dtype=torch.float16, enabled=amp):
+                    output = model(batch)
+                total, algorithm, family = loss_fn(output, batch.y_algoritmo, batch.y_familia)
+                scaler.scale(total).backward()
+                scaler.step(optimizer)
+                scaler.update()
+                totals += batch.num_graphs * np.array([float(total.detach()), algorithm, family])
+                graphs_seen += batch.num_graphs
+            metrics: dict[str, float] = {
+                "perdida": totals[0] / max(graphs_seen, 1),
+                "perdida_algoritmo": totals[1] / max(graphs_seen, 1),
+                "perdida_familia": totals[2] / max(graphs_seen, 1),
+                "tasa_aprendizaje": optimizer.param_groups[0]["lr"],
+                "segundos_entrenamiento": time.perf_counter() - epoch_start,
+            }
+            last = epoch + 1 == training.epocas
+            if last or (epoch + 1) % training.evaluar_cada == 0:
+                evaluation_start = time.perf_counter()
+                p_alg, p_fam = predict(model, eval_loader, device, amp)
+                metrics["f1_macro_algoritmo"] = _macro_f1(y_alg, p_alg)
+                metrics["f1_macro_familia"] = _macro_f1(y_fam, p_fam)
+                metrics["segundos_evaluacion"] = time.perf_counter() - evaluation_start
+            metrics.update(_resource_readings(device, monitor))
+            metrics["segundos_epoca"] = time.perf_counter() - epoch_start
+            metrics = {k: float(v) for k, v in metrics.items()}  # plain floats: weights_only load
+            history.append({"epoca": epoch + 1, **metrics})
+            checkpoints.save(
+                epoch + 1,
+                {
+                    "identidad": identity,
+                    "modelo": model.state_dict(),
+                    "optimizador": optimizer.state_dict(),
+                    "escalador": scaler.state_dict(),
+                    "historial": history,
+                },
             )
-            for group in optimizer.param_groups:
-                group["lr"] = training.tasa_aprendizaje * factor
-            batch = batch.to(device, non_blocking=True)
-            optimizer.zero_grad(set_to_none=True)
-            with torch.autocast("cuda", dtype=torch.float16, enabled=amp):
-                output = model(batch)
-            total, algorithm, family = loss_fn(output, batch.y_algoritmo, batch.y_familia)
-            scaler.scale(total).backward()
-            scaler.step(optimizer)
-            scaler.update()
-            totals += batch.num_graphs * np.array([float(total.detach()), algorithm, family])
-            graphs_seen += batch.num_graphs
-        metrics: dict[str, float] = {
-            "perdida": totals[0] / max(graphs_seen, 1),
-            "perdida_algoritmo": totals[1] / max(graphs_seen, 1),
-            "perdida_familia": totals[2] / max(graphs_seen, 1),
-            "tasa_aprendizaje": optimizer.param_groups[0]["lr"],
-            "segundos_entrenamiento": time.perf_counter() - epoch_start,
-        }
-        last = epoch + 1 == training.epocas
-        if last or (epoch + 1) % training.evaluar_cada == 0:
-            evaluation_start = time.perf_counter()
-            p_alg, p_fam = predict(model, eval_loader, device, amp)
-            metrics["f1_macro_algoritmo"] = _macro_f1(y_alg, p_alg)
-            metrics["f1_macro_familia"] = _macro_f1(y_fam, p_fam)
-            metrics["segundos_evaluacion"] = time.perf_counter() - evaluation_start
-        metrics.update(_gpu_readings(device))
-        metrics["segundos_epoca"] = time.perf_counter() - epoch_start
-        metrics = {k: float(v) for k, v in metrics.items()}  # plain floats: weights_only load
-        history.append({"epoca": epoch + 1, **metrics})
-        checkpoints.save(
-            epoch + 1,
-            {
-                "identidad": identity,
-                "modelo": model.state_dict(),
-                "optimizador": optimizer.state_dict(),
-                "escalador": scaler.state_dict(),
-                "historial": history,
-            },
-        )
-        logger.info(
-            "block %d epoch %d/%d: loss %.4f%s (%.1f s)",
-            fold.block,
-            epoch + 1,
-            training.epocas,
-            metrics["perdida"],
-            f", F1 {metrics['f1_macro_algoritmo']:.4f}" if "f1_macro_algoritmo" in metrics else "",
-            metrics["segundos_epoca"],
-        )
-        if run is not None:
-            run.log_metrics({f"{metric_prefix}{k}": v for k, v in metrics.items()}, step=epoch + 1)
-            run.flush(block=False)
-        if on_epoch is not None:
-            on_epoch(epoch + 1, metrics)
-        if stop_after is not None and epoch + 1 >= stop_after and not last:
-            return BlockResult(
+            logger.info(
+                "block %d epoch %d/%d: loss %.4f%s (%.1f s)",
                 fold.block,
-                float("nan"),
-                float("nan"),
-                history,
-                time.perf_counter() - started,
-                directory,
-                resumed,
+                epoch + 1,
+                training.epocas,
+                metrics["perdida"],
+                f", F1 {metrics['f1_macro_algoritmo']:.4f}"
+                if "f1_macro_algoritmo" in metrics
+                else "",
+                metrics["segundos_epoca"],
             )
+            if run is not None:
+                run.log_metrics(
+                    {f"{metric_prefix}{k}": v for k, v in metrics.items()}, step=epoch + 1
+                )
+                run.flush(block=False)
+            if on_epoch is not None:
+                on_epoch(epoch + 1, metrics)
+            if stop_after is not None and epoch + 1 >= stop_after and not last:
+                return BlockResult(
+                    fold.block,
+                    float("nan"),
+                    float("nan"),
+                    history,
+                    time.perf_counter() - started,
+                    directory,
+                    resumed,
+                )
+    finally:
+        monitor.__exit__(None, None, None)
+
     if start >= training.epocas:  # every epoch was saved, the result was not
         p_alg, p_fam = predict(model, eval_loader, device, amp)
     final = history[-1]

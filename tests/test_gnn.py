@@ -327,3 +327,117 @@ def test_training_batches_respect_the_node_budget(synthetic) -> None:
         assert batch.edge_attr.shape[1] == EDGE_DIM
         seen += batch.num_graphs
     assert seen == len(rows)
+
+
+# --------------------------------------------------------------------------------------------
+# Search (phase 12)
+# --------------------------------------------------------------------------------------------
+
+
+def test_search_configurations(repo_root: Path, tmp_path: Path) -> None:
+    from qcclass.config import ConfigError
+    from qcclass.entrenamiento.busqueda_gnn import load_search_config, split_params
+
+    folder = repo_root / "configs" / "experimentos"
+    search = load_search_config(folder / "gnn_busqueda.yaml")
+    assert search.trials == 50 and search.blocks is None and search.report_every == 10
+    model, training = split_params(
+        search,
+        {
+            "tipo_capa": "gatv2",
+            "dim": 128,
+            "capas": 8,
+            "epocas": 150,
+            "dropout": 0.2,
+            "tasa_aprendizaje": 1e-3,
+            "regularizacion_pesos": 1e-4,
+        },
+    )
+    assert model["cabezas_atencion"] == 4 and model["capas"] == 8
+    assert training.epocas == 150 and training.evaluar_cada == 10 and training.precision_mixta
+    assert load_search_config(folder / "gnn_prueba_reintentos.yaml").blocks == (0, 1)
+    broken = (folder / "gnn_busqueda.yaml").read_text().replace("  dropout:", "  goteo:")
+    (tmp_path / "roto.yaml").write_text(broken)
+    with pytest.raises(ConfigError, match="goteo"):
+        load_search_config(tmp_path / "roto.yaml")
+
+
+def test_intermediate_steps() -> None:
+    from qcclass.entrenamiento.busqueda_gnn import block_step, progress_step
+
+    assert [progress_step(e, 50) for e in (10, 50)] == [20, 100]
+    assert [progress_step(e, 150) for e in (30, 150)] == [20, 100]
+    assert block_step(0) == 1000 and block_step(4) > progress_step(150, 150)
+
+
+SMALL_SEARCH = """
+nombre: s
+experimento_mlflow: s
+semilla: 3
+intentos: 3
+bloques: [0, 1]
+poda: {intentos_iniciales: 10, informe_cada_epocas: 1}
+estimacion: {tras_intentos: 1, limite_horas: 0.000001}
+espacio:
+  dim: {tipo: categorica, valores: [8, 16]}
+  capas: {tipo: fijo, valor: 2}
+  tasa_aprendizaje: {tipo: fijo, valor: 0.01}
+  regularizacion_pesos: {tipo: fijo, valor: 0.0001}
+  epocas: {tipo: fijo, valor: 2}
+fijos:
+  modelo: {tipo_capa: gine}
+  entrenamiento: {presupuesto_nodos: 120, evaluar_cada: 1}
+"""
+
+
+def test_search_objective_dedup_and_estimate(synthetic, tmp_path: Path) -> None:
+    import optuna
+
+    from qcclass.entrenamiento.busqueda_gnn import (
+        OOF_FILE,
+        SearchContext,
+        estimate,
+        load_search_config,
+        make_objective,
+    )
+    from qcclass.seguimiento.reintentos import RetryingStorage
+
+    pool, fold, graphs = synthetic
+    (tmp_path / "s.yaml").write_text(SMALL_SEARCH)
+    search = load_search_config(tmp_path / "s.yaml")
+    blocks = pool.rows["bloque"].to_numpy()
+    folds = [
+        FoldTraining(k, np.flatnonzero(blocks != k), np.flatnonzero(blocks == k), fold.weights)
+        for k in (0, 1)
+    ]
+    provenance = type("P", (), {"machine": "ci", "tags": {}, "machine_description": {}})()
+    config = type("C", (), {"rutas": type("R", (), {"graphs": graphs})()})()
+    storage = RetryingStorage(optuna.storages.InMemoryStorage())
+    ctx = SearchContext(
+        config=config,
+        search=search,
+        pool=pool,
+        folds=folds,
+        storage=storage,
+        provenance=provenance,
+        device="cpu",
+        workers=0,
+        output=tmp_path / "gnn",
+        log_to_mlflow=False,
+    )
+    study = optuna.create_study(study_name="s", storage=storage, direction="maximize")
+    objective = make_objective(ctx, study)
+    study.enqueue_trial({"dim": 8})
+    study.enqueue_trial({"dim": 8})  # same hyperparameters: not trained again
+    study.optimize(objective, n_trials=2)
+    first, second = study.trials
+    assert first.state.name == "COMPLETE" and len(first.user_attrs["f1_bloques"]) == 2
+    assert second.user_attrs["repite_intento"] == 0 and second.value == first.value
+    assert set(first.intermediate_values) == {50, 100, 1000, 1001}
+    directory = tmp_path / "gnn" / "s" / first.user_attrs["huella"]
+    oof = pd.read_parquet(directory / OOF_FILE)
+    assert set(oof["bloque"]) == {0, 1} and len(oof) == 24
+    assert (directory / "bloque_1" / "puntos").is_dir()
+    figures = estimate(study, search)
+    assert figures["intentos_terminados"] == 2 and figures["intentos_restantes"] == 1
+    assert figures["supera_limite"]

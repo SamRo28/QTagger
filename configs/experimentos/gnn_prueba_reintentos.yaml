@@ -1,0 +1,38 @@
+# Phase 12 (before the search): retry test. One short trial (2 blocks x 20 epochs) of a
+# throw-away study; the MLflow and Optuna servers are stopped for 1-2 minutes in the middle.
+# The training must not stop and, at the end, everything must be in both servers.
+
+nombre: gnn_prueba_reintentos
+experimento_mlflow: gnn_fase12_pruebas
+semilla: 42
+intentos: 1
+bloques: [0, 1]
+poda:
+  intentos_iniciales: 10
+  informe_cada_epocas: 2               # many intermediate values while the servers are down
+estimacion:
+  tras_intentos: 10
+  limite_horas: 48
+
+espacio:                               # one configuration: the reference one
+  tipo_capa: {tipo: fijo, valor: gine}
+  dim: {tipo: fijo, valor: 64}
+  capas: {tipo: fijo, valor: 3}
+  nodo_virtual: {tipo: fijo, valor: false}
+  agregacion: {tipo: fijo, valor: media_max}
+  lambda_familia: {tipo: fijo, valor: 1.0}
+  tasa_aprendizaje: {tipo: fijo, valor: 1.0e-3}
+  dropout: {tipo: fijo, valor: 0.0}
+  regularizacion_pesos: {tipo: fijo, valor: 1.0e-4}
+  epocas: {tipo: fijo, valor: 20}
+
+fijos:
+  modelo:
+    jumping_knowledge: true
+    cabezas_atencion: 4
+  entrenamiento:
+    calentamiento: 0.05
+    presupuesto_nodos: 100000
+    precision_mixta: true
+    variante_aristas: completo
+    evaluar_cada: 2

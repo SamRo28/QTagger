@@ -197,3 +197,12 @@ def suggest(trial: optuna.Trial, space: dict[str, dict]) -> dict[str, Any]:
 def fixed_params(space: dict[str, dict], chosen: dict[str, Any]) -> dict[str, Any]:
     """Complete the parameters of a finished trial with the fixed values of the space."""
     return {**{n: s["valor"] for n, s in space.items() if s["tipo"] == "fijo"}, **chosen}
+
+
+def check_space(space: dict, ctx: str) -> dict[str, dict]:
+    """Validate a search space (also used by the GNN search).
+
+    Raises:
+        ConfigError: if a specification is invalid.
+    """
+    return _check_space(space, ctx)

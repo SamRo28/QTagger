@@ -194,3 +194,9 @@ Los comandos concretos de cada fase se añaden aquí cuando existan.
     `results/gnn/gnn_referencia/<huella>/bloque_0/`; MLflow, experimento `gnn_fase11`.
   - `qcclass comprobar-precision-mixta`: la misma con y sin precisión mixta; escribe
     `results/gnn/precision_mixta.json`. Reutiliza el entrenamiento anterior si ya existe.
+- **Fase 12 (búsqueda de la GNN, `rtx3050`).** Antes: `qcclass entrenar-gnn --experimento
+  configs/experimentos/gnn_peor_caso.yaml` (y `…_gine.yaml`), memoria del peor caso; prueba
+  de reintentos con `qcclass buscar-gnn --experimento configs/experimentos/gnn_prueba_reintentos.yaml`
+  parando los servidores del `m1pro` a mitad. Búsqueda: `qcclass buscar-gnn` en tmux (sesión
+  `fase12`), relanzable; progreso en `results/gnn/gnn_aleatorio_v1/estimacion.json`, en
+  MLflow (experimento `gnn_aleatorio_v1`) y en el estudio de Optuna.

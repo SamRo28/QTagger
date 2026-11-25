@@ -1,0 +1,28 @@
+# Phase 12 (before the search): same size as gnn_peor_caso.yaml with GINE, to separate the cost
+# of GATv2 from the cost of dim x layers (qcclass entrenar-gnn --experimento ...gine.yaml).
+# It reports GPU memory (allocated and reserved), RAM and time per epoch; never the test set.
+
+nombre: gnn_peor_caso_gine
+experimento_mlflow: gnn_fase12_pruebas
+semilla: 42
+
+modelo:
+  tipo_capa: gine
+  dim: 128
+  capas: 8
+  dropout: 0.0
+  nodo_virtual: true
+  agregacion: atencion
+  jumping_knowledge: true
+  cabezas_atencion: 4
+
+entrenamiento:
+  epocas: 2
+  tasa_aprendizaje: 1.0e-3
+  regularizacion_pesos: 1.0e-4
+  lambda_familia: 1.0
+  calentamiento: 0.05
+  presupuesto_nodos: 100000
+  precision_mixta: true
+  variante_aristas: completo
+  evaluar_cada: 1
