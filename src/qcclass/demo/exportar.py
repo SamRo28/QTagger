@@ -72,6 +72,7 @@ BINARY_FILE = "trazas.bin"
 GLOBAL_FILE = "global.json"
 GENERATED = "aleatorio_generado"
 DECISION_ROW = re.compile(r"^\|\s*(\d{4}-\d{2}-\d{2})\s*\|(.*)\|\s*$")
+PIPE = re.compile(r"(?<!\\)\|")  # cell separator (an escaped \| is part of the text)
 
 
 # --------------------------------------------------------------------------------------------
@@ -290,25 +291,22 @@ def choose_gallery(
         distance = (options["n"] - demo.target_gates).abs()
         return options.assign(_d=distance).sort_values(["_d", "id"]).drop(columns="_d")
 
-    def pick(options: pd.DataFrame, fallback: pd.DataFrame, what: str):
-        """Readable option closest to the target, correctly predicted first; without a
-        readable option, the same among ``fallback`` (readability limits ignored)."""
-        note = ""
-        if options.empty:
-            logger.warning("no readable candidate for %s: fallback", what)
-            options, note = fallback, " (no readable candidate: limits ignored)"
-        if options.empty:
-            logger.warning("no candidate for %s", what)
-            return None
-        options = by_target(options)
-        correct = options[options["correct"]]
-        if correct.empty:
-            return options.iloc[0], f"{what} closest to {demo.target_gates} gates{note}, " + (
-                "none predicted correctly"
-            )
-        return correct.iloc[
-            0
-        ], f"correctly predicted {what} closest to {demo.target_gates} gates{note}"
+    def pick(levels: list[tuple[pd.DataFrame, str]], what: str):
+        """First non-empty level (readable, then each fallback): the option closest to the
+        target, correctly predicted first."""
+        for options, note in levels:
+            if options.empty:
+                continue
+            if note:
+                logger.warning("no readable candidate for %s:%s", what, note)
+            options = by_target(options)
+            correct = options[options["correct"]]
+            closest = f"closest to {demo.target_gates} gates{note}"
+            if correct.empty:
+                return options.iloc[0], f"{what} {closest}, none predicted correctly"
+            return correct.iloc[0], f"correctly predicted {what} {closest}"
+        logger.warning("no candidate for %s", what)
+        return None
 
     main = trainable[
         (trainable["algoritmo"] == demo.main_algorithm)
@@ -338,15 +336,22 @@ def choose_gallery(
             return table[keep]
 
         what = f"circuit of {family}" + (f" ({', '.join(allowed)})" if allowed else "")
-        if found := pick(of_family(readable), of_family(trainable), what):
+        few_qubits = trainable[trainable["n_qubits"].astype(int) <= demo.readable_qubits]
+        levels = [
+            (of_family(readable), ""),
+            (of_family(few_qubits), " (none readable: gate range ignored)"),
+            (of_family(trainable), " (none readable: gate and qubit limits ignored)"),
+        ]
+        if found := pick(levels, what):
             add(found[0], "family", found[1])
     restricted = "; ".join(f"{f}: {', '.join(a)}" for f, a in demo.family_algorithms.items())
     criteria.append(
         f"One per family, readable: {limits} (ties by id), correctly predicted first; not "
         f"{demo.main_algorithm} (the main one)"
         + (f"; algorithms allowed: {restricted}" if restricted else "")
-        + f". Without a readable candidate, the candidate of the family closest to "
-        f"{demo.target_gates} gates."
+        + f". Without a readable candidate: the one closest to {demo.target_gates} gates with "
+        f"at most {demo.readable_qubits} qubits (gate range ignored), and only if there is "
+        "none, ignoring the qubit limit too."
     )
 
     def wrong(table: pd.DataFrame) -> pd.DataFrame:
@@ -721,7 +726,7 @@ def _decisions(root: Path) -> s.Section:
     rows = []
     for line in path.read_text(encoding="utf-8").splitlines():
         if match := DECISION_ROW.match(line):
-            cells = [c.strip() for c in match.group(2).split("|")]
+            cells = [c.strip().replace("\\|", "|") for c in PIPE.split(match.group(2))]
             if len(cells) >= 4:
                 rows.append(
                     s.Decision(

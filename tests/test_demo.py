@@ -288,3 +288,21 @@ def test_demo_reference_is_the_phase_11_reference(repo_root: Path) -> None:
     assert config.experiment.name == "demo_referencia.yaml"
     assert config.family_algorithms == {"oraculos": ("dj", "bv")}
     assert (config.readable_qubits, config.target_gates) == (10, 120)
+
+
+def test_decision_rows_keep_escaped_pipes(tmp_path: Path) -> None:
+    from qcclass.demo.exportar import _decisions
+
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "DECISIONES.md").write_text(
+        "| Fecha | Fase | Decisión | Motivo | Alternativa |\n|---|---|---|---|---|\n"
+        "| 2026-11-26 | 11b | error \\|a − b\\| | porque | otra |\n",
+        encoding="utf-8",
+    )
+    (row,) = _decisions(tmp_path).data
+    assert (row.phase, row.decision, row.reason, row.alternative) == (
+        "11b",
+        "error |a − b|",
+        "porque",
+        "otra",
+    )

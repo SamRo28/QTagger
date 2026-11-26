@@ -27,8 +27,9 @@ galeria:                               # 'etiquetada' variants of the held-out g
     puertas_objetivo: 120              # the closest to it (ties: id); correctly predicted first
   algoritmos_por_familia:              # restrict the algorithm shown for a family
     oraculos: [dj, bv]                 # Grover is already the main circuit
-  # Fallback when no candidate of a family is readable: the candidate of that family closest
-  # to puertas_objetivo, ignoring the readability limits (the reason says so).
+  # Fallback when no candidate of a family is readable (the reason says so): the one closest
+  # to puertas_objetivo with at most max_cubits qubits (gate range ignored); only if there is
+  # none, ignoring max_cubits too.
   columnas_por_rango: true             # a gate occupies every qubit between its lowest and
                                        # highest one in the drawings (as its box or CX line)
   aleatorio:                           # the "unknown" example, generated now with a fixed

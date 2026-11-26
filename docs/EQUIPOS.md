@@ -202,7 +202,8 @@ Los comandos concretos de cada fase se añaden aquí cuando existan.
   MLflow (experimento `gnn_aleatorio_v1`) y en el estudio de Optuna.
 - **Fase 11b (exportación provisional para QTaggerDemo, `m3pro`, en paralelo a la fase 12).**
   Sin `git pull` en el `rtx3050` ni en el `m1pro` mientras dure la búsqueda. Pasos:
-  `qcclass entrenar-gnn --dispositivo cpu` (la referencia en el bloque 0, ~21 min con 12
+  `qcclass entrenar-gnn --experimento configs/experimentos/demo_referencia.yaml --dispositivo
+  cpu` (la referencia en el bloque 0, experimento de MLflow `demo_provisional`, ~21 min con 12
   hilos), `qcclass esquema-demo` (reescribe `esquema/demo/`) y `qcclass exportar-demo
   --provisional` (~30 s; escribe `exports/demo/provisional/`, no versionado).
 - **GPU del `rtx3050` (una vez):** Panel de control de NVIDIA → *Administrar configuración
