@@ -200,6 +200,11 @@ Los comandos concretos de cada fase se añaden aquí cuando existan.
   parando los servidores del `m1pro` a mitad. Búsqueda: `qcclass buscar-gnn` en tmux (sesión
   `fase12`), relanzable; progreso en `results/gnn/gnn_aleatorio_v1/estimacion.json`, en
   MLflow (experimento `gnn_aleatorio_v1`) y en el estudio de Optuna.
+- **Fase 11b (exportación provisional para QTaggerDemo, `m3pro`, en paralelo a la fase 12).**
+  Sin `git pull` en el `rtx3050` ni en el `m1pro` mientras dure la búsqueda. Pasos:
+  `qcclass entrenar-gnn --dispositivo cpu` (la referencia en el bloque 0, ~21 min con 12
+  hilos), `qcclass esquema-demo` (reescribe `esquema/demo/`) y `qcclass exportar-demo
+  --provisional` (~30 s; escribe `exports/demo/provisional/`, no versionado).
 - **GPU del `rtx3050` (una vez):** Panel de control de NVIDIA → *Administrar configuración
   3D* → *CUDA - Sysmem Fallback Policy* → **Prefer No Sysmem Fallback**. Sin esto, lo que no
   cabe en los 4 GB se desborda a la RAM sin error y va unas 50 veces más lento. Los comandos
