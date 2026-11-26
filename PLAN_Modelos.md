@@ -1,18 +1,18 @@
 # Plan de construcción: fases de modelos (9 a 18)
-
+ 
 > **Instrucciones para la IA que ejecute este plan.**
 >
 > - Lee el documento entero y `docs/DECISIONES.md` antes de escribir código.
 > - Trabaja **fase a fase**. Al terminar cada fase, ejecuta sus comprobaciones y sus tests, enséñame un resumen y **espera mi confirmación** antes de pasar a la siguiente.
 > - No inventes APIs: comprueba la versión instalada de cada librería y adapta el código. Si algo del plan no encaja con la API real o puede mejorarse claramente, **detente y pregúntame**.
 > - Regla absoluta: **nada se evalúa en test ni en los desconocidos hasta la fase 17**, y solo mediante `qcclass evaluar-final`. Cualquier análisis posterior a la fase 17 se guarda aparte y se etiqueta como «análisis posterior».
-
+ 
 ---
-
+ 
 ## 0. Contexto y decisiones de diseño
-
+ 
 La etapa de datos (fases 1 a 8) está terminada y la medición de rendimiento está hecha. Las decisiones de diseño de los modelos se tomaron paso a paso y están razonadas en el documento del proyecto. Aquí se resumen las que condicionan el código.
-
+ 
 | Tema | Decisión |
 |---|---|
 | Versionado | Etiqueta git por versión del dataset y `data/VERSION.json` con huellas. Esta etapa crea `dataset-v1.1` |
@@ -31,19 +31,18 @@ La etapa de datos (fases 1 a 8) está terminada y la medición de rendimiento es
 | Explicabilidad | Gradientes integrados promediados sobre 10 semillas, contrastados con GNNExplainer y oclusión de bloques. Métricas: AUROC y precisión en los k primeros, frente a importancia aleatoria y la regla «todas las CNOT». Motivos frecuentes por huella WL. Definiciones fijadas en el pre-registro |
 | Desconocidos | Mahalanobis como método principal; probabilidad máxima y energía como secundarios. Umbral que acepta el 95 % de los conocidos de val. Familia de `hhl` y `hrs`. Agrupación con HDBSCAN y medida de pureza |
 | Cierre | Pre-registro en `docs/PLAN_ANALISIS.md` con etiqueta git; en test solo los finalistas; bootstrap pareado por grupos (10 000 remuestreos), tres comparaciones principales y corrección de Holm |
-
+ 
 **Equipos:**
-
+ 
 - **RTX 3050 de portátil, 4 GB, en WSL2** (`rtx3050`): equipo principal de la GNN. Una época de la red de referencia tarda 3,7 s con precisión mixta y 4 procesos de carga. WSL2 tiene 11 GB de RAM (configurado en `.wslconfig`).
 - **MacBook Pro M3 Pro, 18 GB** (`m3pro`): línea base, WL, análisis y, si hace falta, entrenamiento de la GNN **en CPU**. MPS queda descartado porque resultó más lento que la CPU.
 - **MacBook Pro M1 Pro, 16 GB** (`m1pro`): servidor de MLflow y de la base de datos de Optuna. Debe estar encendido y sin entrar en reposo mientras haya experimentos en marcha.
-
 ---
-
+ 
 ## Fase 9. Infraestructura común
-
+ 
 ### Tareas
-
+ 
 1. **`dataset-v1.1`**
    - Crea `data/splits/aleatorio_bloques.csv` (`group_id`, `bloque` de 0 a 4) con `StratifiedGroupKFold` sobre train + val del protocolo `aleatorio`, estratificado por etiqueta y con semilla fija. Las variantes `solo_evaluacion` heredan el bloque de su grupo, pero nunca se entrenan.
    - Amplía `data/VERSION.json` con la huella del archivo de bloques y con las versiones de Python, Qiskit, MQT Bench, torch, PyTorch Geometric, NumPy, scikit-learn y Optuna.
@@ -71,20 +70,18 @@ La etapa de datos (fases 1 a 8) está terminada y la medición de rendimiento es
    - Registro de la información del equipo, reutilizando lo de `qcclass medir`.
    - Registro en MLflow, en cada ejecución, de la versión del dataset, el commit de git, el equipo y la configuración completa.
 6. Renombra en `results/medicion/` el equipo `rtx3035` a `rtx3050`.
-
 ### Comprobación
-
+ 
 - Tests en verde; `qcclass verificar` correcto en los tres equipos.
 - `qcclass ping` funciona desde la RTX 3050 y desde el M3 Pro.
 - Una ejecución de prueba aparece en la interfaz de MLflow.
 - Un estudio de Optuna de prueba recibe 2 intentos desde la RTX 3050 y 2 desde el M3 Pro, y los cuatro aparecen en el mismo estudio.
-
 ---
-
+ 
 ## Fase 10. Línea base (en el M3 Pro)
-
+ 
 ### Tareas
-
+ 
 1. **Peldaños.**
    - **Solo tamaño (E7):** `n_qubits`, `profundidad`, `n_puertas` de F3.
    - **F3 completo.**
@@ -106,17 +103,16 @@ La etapa de datos (fases 1 a 8) está terminada y la medición de rendimiento es
    - **Finalistas:** el mejor clasificador de cada peldaño según el F1 macro de algoritmo en validación cruzada.
    - Importancia por permutación de los finalistas.
    - Todo en MLflow y en `results/baseline/RESUMEN.md`.
-
 ### Comprobación
-
+ 
 Test de integración con `data_mini`; resultado de E7 visible en el resumen. **Sin test.**
-
+ 
 ---
-
+ 
 ## Fase 11. Implementación de la GNN
-
+ 
 ### Tareas
-
+ 
 1. **Transformaciones de aristas.**
    - Por defecto: ambos sentidos, con un atributo de dirección (adelante o atrás), además del rol de control o destino.
    - Variantes para las ablaciones: `solo_adelante`, `sin_direccion`, `sin_rol` y `sin_angulos` (seno y coseno a cero).
@@ -141,17 +137,16 @@ Test de integración con `data_mini`; resultado de E7 visible en el resumen. **S
    - Que el sampler respete el presupuesto.
    - Que reanudar desde un punto de guardado dé el mismo estado que el entrenamiento continuo (con tolerancia).
    - Entrenamiento corto con `data_mini` en CPU.
-
 ### Comprobación
-
+ 
 Entrena la configuración de referencia en un bloque en la RTX 3050 y compara el tiempo por época con la medición (unos 3,7 s, más la evaluación).
-
+ 
 ---
-
+ 
 ## Fase 11b. Contrato de datos para QTaggerDemo y exportación provisional (en paralelo a la fase 12)
-
+ 
 **Contexto.** QTaggerDemo es una web estática en React, en un repositorio aparte, que explica el proyecto de forma visual. Su laboratorio anima 12 escenas:
-
+ 
 1. carga;
 2. circuito con sus bloques;
 3. aplanado;
@@ -164,19 +159,17 @@ Entrena la configuración de referencia en un bloque en la RTX 3050 y compara el
 10. predicción;
 11. explicación;
 12. ¿desconocido?
-
 Tiene además un modo «seguir una puerta» que acompaña a una puerta concreta por todo el recorrido. **El esquema de datos vive en QTagger** y es la fuente única de verdad: QTaggerDemo genera sus tipos a partir de una versión etiquetada.
-
+ 
 **Restricciones:**
-
+ 
 - Se ejecuta en el m3pro (CPU), sin interrumpir la búsqueda de la fase 12.
 - No se modifican los módulos de entrenamiento ni nada que cambie la huella de los entrenamientos.
 - No se hace `pull` en rtx3050 ni en m1pro mientras dure la búsqueda.
 - No se usan ni el test ni los desconocidos.
 - Todo lo exportado se marca como provisional.
-
 ### Tareas
-
+ 
 1. **Esquema** en `esquema/demo/` (JSON Schema, `schema_version` 0.1.0):
    - `circuito.schema.json`, un archivo por circuito, con estas partes:
      - `model`: versiones y arquitectura (capas, dimensiones, parámetros por capa);
@@ -190,7 +183,7 @@ Tiene además un modo «seguir una puerta» que acompaña a una puerta concreta 
      - `unknown`: distancias por clase, umbral, veredicto y posición en el mapa 2D global.
    - Binario `trazas.bin` en float16 *little-endian*. El JSON incluye un índice (nombre, desplazamiento y forma) para: atributos de entrada [N, F], salida de la capa de entrada [N, D], cada capa [N, D], nodo virtual [L, D] si existe, Jumping Knowledge y vector resumen.
    - Coordenadas 2D: PCA por capa, **alineada con la capa anterior** (Procrustes) para que la animación sea continua y no dé saltos por giros o reflejos de la proyección.
-   - Disposición en columnas: cada puerta en la primera columna libre de todos sus cúbits, calculada para F1 y para F2.
+   - Disposición en columnas: cada puerta en la primera columna libre de **todo el rango** de cúbits entre el menor y el mayor que toca (así la línea de una CX no cruza otra puerta de su columna), calculada para F1 y para F2. La variante «solo sus cúbits» queda disponible con `columnas_por_rango: false`.
    - `global.schema.json`: clases y familias con su estado, mapa 2D de referencia, matrices de confusión, escalera de líneas base, curvas de entrenamiento, historial de Optuna, ablaciones, decisiones y versiones.
    - Modelos pydantic con validación, ejemplos válidos en los tests y etiqueta git `esquema-demo-v0.1.0`.
 2. **Exportación provisional** (`qcclass exportar-demo --provisional`):
@@ -200,27 +193,27 @@ Tiene además un modo «seguir una puerta» que acompaña a una puerta concreta 
      - uno por familia;
      - un error de la red, si lo hay;
      - todos **de la validación del bloque 0**, cuyos grupos no vio ese modelo;
-     - y, como ejemplo de «desconocido», un circuito aleatorio generado en ese momento, que no forma parte del dataset.
+     - y, como ejemplo de «desconocido», un circuito aleatorio generado en ese momento con semilla fija y registrada, que no forma parte del dataset.
+   - Criterios de legibilidad para elegir los circuitos de la galería (principal aparte), en este orden: (1) ningún algoritmo reservado del protocolo `abierto` (`simon`, `qwalk`, `hhl`), porque en la historia de la demo son los que la red nunca ha visto; (2) como mucho 10 cúbits; (3) entre 30 y 400 puertas canónicas, lo más cerca posible de 120; (4) si ningún circuito de la familia cumple (3), el más cercano a ese rango que cumpla (1) y (2). Entre los que empaten, el mejor clasificado.
+   - El modelo puede reentrenarse en el m3pro con la misma configuración si el de la fase 11 no está en esa máquina; se registra en un experimento de MLflow propio de la demo, nunca en los de las fases 11 o 12.
    - Desconocidos provisionales: Mahalanobis con medias y covarianza de la parte de entrenamiento del bloque 0, y umbral que acepta el 95 % de los conocidos de su validación.
    - Explicación provisional: gradientes integrados con el modelo de referencia.
    - Global provisional: clases, familias, escalera de líneas base (resultados reales de validación cruzada), estadísticas del dataset y medición. Lo que aún no exista queda vacío y marcado.
    - Criterios de selección documentados. Todo lleva `provisional: true`.
    - Salida en `exports/demo/provisional/`, con un límite orientativo de 2 MB de JSON y 5 MB de binario por circuito.
-
 ### Comprobación
-
+ 
 Todo valida contra el esquema y los tamaños están dentro del límite. Un test reconstruye un vector desde el binario y coincide con el que da el modelo.
-
+ 
 ---
-
+ 
 ## Fase 12. Búsqueda de hiperparámetros de la GNN
-
+ 
 ### Tareas
-
+ 
 1. **Estudio** `gnn_aleatorio_v1` en el almacenamiento compartido. TPE con semilla. Recorte por mediana a partir de 10 intentos completos.
    - Valores intermedios: el F1 macro tras cada bloque y, dentro del primer bloque, también cada 10 épocas.
 2. **Espacio de búsqueda:**
-
    | Hiperparámetro | Valores |
    |---|---|
    | `tipo_capa` | gine, gatv2 |
@@ -233,7 +226,6 @@ Todo valida contra el esquema y los tamaños están dentro del límite. Un test 
    | `dropout` | 0 a 0,5 |
    | Regularización de pesos | 0,000001 a 0,01 (logarítmica) |
    | Épocas | 50, 100, 150 |
-
    Fijos: residuales y normalización, Jumping Knowledge, aristas en ambos sentidos con dirección, lotes de 100 000 nodos, AdamW, coseno con calentamiento y precisión mixta según la fase 11.
 3. **Objetivo:** F1 macro medio de algoritmo en los 5 bloques, con 1 semilla por bloque. Registra también el de familia.
 4. **Guarda**, de cada intento completado, los modelos de los 5 bloques (último punto de guardado) y sus predicciones fuera de bloque.
@@ -243,17 +235,16 @@ Todo valida contra el esquema y los tamaños están dentro del límite. Un test 
    - Informe con el historial, la importancia de los hiperparámetros y gráficos de coordenadas paralelas, guardados también como datos (CSV) para el proyecto visual.
    - Comparación exploratoria, con las predicciones fuera de bloque, entre la GNN y los finalistas de la línea base.
 7. **Punto de control (contingencia).** Si alguna clase tiene un F1 fuera de bloque inferior a 0,5, o la GNN queda más de 2 puntos de F1 macro por debajo de la mejor línea base, **para y avísame**. Decidiremos si activar el plan de contingencia (más variantes de compilación para las clases pequeñas) antes de seguir.
-
 ### Comprobación
-
+ 
 Informe de la búsqueda con el tiempo real consumido. **Sin test.**
-
+ 
 ---
-
+ 
 ## Fase 13. Ablaciones y modelo secuencial
-
+ 
 ### Tareas
-
+ 
 1. **Seis ablaciones** sobre la mejor configuración, **sin volver a ajustar** sus hiperparámetros:
    1. sin ángulos;
    2. aristas solo hacia delante, y aristas sin dirección (dos variantes);
@@ -261,30 +252,27 @@ Informe de la búsqueda con el tiempo real consumido. **Sin test.**
    4. F5 (grafo de cúbits) en lugar de F4;
    5. sin cabeza de familia (λ = 0);
    6. sin Jumping Knowledge.
-
    Cada una se mide (a) con validación cruzada de 5 bloques en `aleatorio` (1 semilla) y (b) en `por_tamano`, entrenando con su train y evaluando en su val, con 5 semillas.
 2. **Tabla de ablaciones:** diferencia de F1 macro respecto al modelo completo, con intervalos por bootstrap pareado por grupos. Es un análisis exploratorio.
 3. **Red convolucional 1D sobre F6 (prioridad baja).** **Pregúntame antes de empezarla.**
    - Cada token se representa con el tipo de puerta, el seno y coseno del ángulo y el índice de cúbit normalizado.
    - Convoluciones 1D con dilatación, agregación global y las mismas dos cabezas.
    - Optuna con 50 intentos y validación cruzada.
-
 ### Comprobación
-
+ 
 Tabla de ablaciones en `results/ablaciones/RESUMEN.md`. **Sin test.**
-
+ 
 ---
-
+ 
 ## Fase 14. Pre-registro
-
+ 
 Redacta `docs/PLAN_ANALISIS.md`, **pero no crees la etiqueta**: lo revisaremos antes. Debe contener:
-
+ 
 1. **Finalistas que irán a test:** el mejor clasificador de cada peldaño, la GNN y, si se hizo, la red convolucional 1D.
 2. **Tres comparaciones principales**, con hipótesis direccionales:
    - GNN frente al mejor WL en `aleatorio`;
    - GNN frente al mejor WL en `por_tamano`;
    - GNN frente a E7 en `aleatorio`.
-
    Método: bootstrap pareado por grupos con 10 000 remuestreos, intervalo del 95 % de la diferencia de F1 macro y corrección de Holm sobre las tres. El resto de comparaciones se declara exploratorio.
 3. **Métricas y desgloses** de todos los protocolos.
 4. **Explicabilidad:**
@@ -294,34 +282,32 @@ Redacta `docs/PLAN_ANALISIS.md`, **pero no crees la etiqueta**: lo revisaremos a
    - Umbral para definir las «puertas importantes» en la búsqueda de motivos.
 5. **Desconocidos:**
    - Método principal: Mahalanobis con covarianza compartida sobre el vector resumen. Secundarios: probabilidad máxima y energía.
-   - Umbral: el que acepta el 95 % de los conocidos de val con los modelos de `abierto`.
+   - Umbral: el que acepta el 95 % de los conocidos de val con los modelos de `abierto`. Decide y justifica, antes de mirar ningún resultado, si los circuitos solo de familia (−1) cuentan como conocidos al calcularlo: no tienen media de clase propia en la cabeza de algoritmo, así que incluirlos sube el umbral. En la exportación provisional de la fase 11b sí cuentan (124 de 1737).
    - Parámetros de HDBSCAN fijados de antemano (por ejemplo, `min_cluster_size`).
    - Métricas: AUROC, falsos aceptados al 95 %, F1 de la clase desconocido, desglose por algoritmo, acierto de familia en `hhl` y `hrs_cumulative_multiplier`, y pureza de los grupos.
 6. **Regla de cambios posteriores:** cualquier análisis tras la fase 17 se guarda en `results/posterior/` y se etiqueta como análisis posterior.
-
 Cuando lo aprobemos, crea la etiqueta `preregistro-v1`.
-
+ 
 ---
-
+ 
 ## Fase 15. Modelos finales
-
+ 
 ### Tareas
-
+ 
 1. **GNN:** la mejor configuración, con 10 semillas y el número de épocas elegido.
    - `aleatorio`, `por_tamano`, `oraculos_no_vistos` y `por_nivel`: entrenamiento con train + val.
    - `abierto`: entrenamiento **solo con train**.
 2. **Finalistas de la línea base:** entrenamiento con train + val en `aleatorio`, `por_tamano`, `oraculos_no_vistos` y `por_nivel`, con 10 semillas en los modelos con aleatoriedad.
 3. **Guarda cada modelo** con sus pesos, su configuración, el commit de git y la versión del dataset en `results/modelos_finales/`, y regístralo en MLflow.
 4. **No evalúes nada en test.** Solo registra métricas de entrenamiento como comprobación de sanidad.
-
 ---
-
+ 
 ## Fase 16. Puesta a punto en validación
-
+ 
 Todo en esta fase se hace **sobre val del protocolo `abierto`**, con sus modelos (entrenados solo con train), siguiendo exactamente lo pre-registrado.
-
+ 
 ### Tareas
-
+ 
 1. **Explicabilidad.**
    - Gradientes integrados con Captum (atributos a cero como referencia, 50 pasos), promediados sobre las 10 semillas.
    - GNNExplainer sobre 3 semillas.
@@ -334,15 +320,14 @@ Todo en esta fase se hace **sobre val del protocolo `abierto`**, con sus modelos
    - Umbral al 95 %.
    - **No mires ningún desconocido.**
 3. **Salidas** en `results/dev/`.
-
 ---
-
+ 
 ## Fase 17. Evaluación final única
-
+ 
 ### Tareas
-
+ 
 Implementa `qcclass evaluar-final`, que:
-
+ 
 1. **Comprueba** que existe la etiqueta `preregistro-v1`, que la versión del dataset coincide y que están todos los modelos finales. Si falta algo, aborta.
 2. **Evalúa en test** los finalistas en todos los protocolos, con todas las métricas, desgloses e intervalos.
 3. **Calcula las tres comparaciones principales** con bootstrap pareado y corrección de Holm.
@@ -352,20 +337,19 @@ Implementa `qcclass evaluar-final`, que:
    - Agrupación con HDBSCAN y pureza.
 5. **Explicabilidad sobre las 556 variantes etiquetadas de test**, con los modelos finales de `aleatorio`.
 6. **Registra** cada acceso, escribe `results/final/` (JSON, `RESUMEN.md` y figuras) y lo registra todo en MLflow.
-
 Se ejecuta **una sola vez**. Lo que venga después es análisis posterior.
-
+ 
 ---
-
+ 
 ## Fase 18. Publicación y artefactos para el proyecto visual
-
+ 
 ### Tareas
-
+ 
 1. **Paquetes de publicación.** Los prepara la IA; la subida la decido yo cuando sepa el formato final.
    - Código: `LICENSE` (MIT), `CITATION.cff` y una sección del README para reproducir todo desde cero. Etiqueta de *release*.
    - Dataset para Zenodo: circuitos canónicos (QPY y QASM), metadatos, particiones, bloques, etiquetas y `VERSION.json` en un archivo comprimido con su ficha de metadatos, incluida la atribución a MQT Bench y su licencia.
    - Modelos finales (pesos y configuraciones) y una exportación del resumen de MLflow en CSV.
-2. **`qcclass exportar-demo` con los modelos finales**, siguiendo la última versión del esquema `esquema/demo/` de la fase 11b, que sustituye a la galería provisional. La galería definitiva sale **del test**, porque tras la fase 17 ya se puede usar: Grover pequeño como circuito principal, uno por familia, uno de los desconocidos y un error de la red. Las importancias son la media y la desviación sobre las 10 semillas, y los desconocidos usan el umbral de la fase 16. El archivo global va completo. Debe contener:
+2. **`qcclass exportar-demo` con los modelos finales**, siguiendo la última versión del esquema `esquema/demo/` de la fase 11b, que sustituye a la galería provisional. La galería definitiva sale **del test**, porque tras la fase 17 ya se puede usar: Grover pequeño como circuito principal, uno por familia, uno de los desconocidos y un error de la red, con los mismos criterios de legibilidad de la fase 11b (salvo el primero en el ejemplo de desconocido, que aquí sí debe ser uno de los algoritmos reservados). Las importancias son la media y la desviación sobre las 10 semillas, y los desconocidos usan el umbral de la fase 16. El archivo global va completo. Debe contener:
    - **Circuitos de ejemplo:** 2 de test por clase (incluido un error cuando exista) y 1 por cada algoritmo desconocido. Para cada uno:
      - QASM y dibujo en SVG;
      - lista de puertas con índice de nodo en F4, tipo, cúbits, columna en el dibujo, ángulo y bloque F7;
@@ -375,11 +359,10 @@ Se ejecuta **una sola vez**. Lo que venga después es análisis posterior.
    - **Arquitectura:** descripción por capa y ruta a los pesos.
    - **Vistas globales:** proyección UMAP 2D de los vectores resumen de test y desconocidos con sus etiquetas; curvas de entrenamiento; historial e importancias de Optuna; matrices de confusión; tabla de ablaciones.
 3. **`docs/GLOSARIO.md`:** déjalo creado con la lista de conceptos (métricas, validación cruzada, bootstrap, regularización, tasa de aprendizaje, coseno con calentamiento, lotes, precisión mixta, procesos de carga, paso de mensajes, GINE, GATv2, atención, Jumping Knowledge, nodo virtual, sobresuavizado, agregación global, WL, gradientes integrados, GNNExplainer, oclusión, Mahalanobis, energía, HDBSCAN, pureza, pre-registro y corrección de Holm). El contenido lo redactaremos aparte.
-
 ---
-
+ 
 ## Calendario orientativo de cómputo
-
+ 
 | Fase | Equipo | Duración estimada |
 |---|---|---|
 | 9 | — | Implementación |
@@ -391,15 +374,16 @@ Se ejecuta **una sola vez**. Lo que venga después es análisis posterior.
 | 15 | RTX 3050 y M3 Pro | ~6 h |
 | 16 | RTX 3050 | ~3 h |
 | 17 | RTX 3050 | ~1 h |
-
+ 
 En total, entre dos y tres días de máquina. Los entrenamientos largos se lanzan con los equipos enchufados y ventilados, preferiblemente de noche.
-
+ 
 ---
-
+ 
 ## Reglas generales
-
+ 
 - Un commit por fase cuando pasen sus comprobaciones, y `docs/DECISIONES.md` actualizado en ese mismo commit.
 - Toda ejecución registra en MLflow la versión del dataset, el commit, el equipo y la configuración.
 - Nunca se usa `--evaluar-test` fuera de la fase 17.
 - Las configuraciones de los experimentos van en `configs/experimentos/`, una por experimento. Nada de rutas ni hiperparámetros escritos a mano en el código.
 - Si una decisión de este plan resulta imposible o claramente mejorable al ver la API real o los datos, **detente y pregúntame**.
+ 

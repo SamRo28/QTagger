@@ -208,6 +208,13 @@ Se actualiza en cada fase, en el mismo commit que el código.
 
 ## Avisos pendientes
 
+- **Esquema de la demo 0.2.0 (pendiente).** Lote para cuando lleguen las peticiones de
+  QTaggerDemo: la semilla del circuito aleatorio como campo propio (hoy solo en el texto de
+  `selection.reason` y en los criterios del global) y, si se exporta también la clase real de
+  los errores, gradientes integrados con 256 pasos. El esquema 0.1.0 no cambia hasta entonces.
+- **Umbral provisional de desconocidos.** Cuenta como conocidos los 124 circuitos solo de
+  familia del bloque 0; se mantiene en la exportación provisional. El pre-registro (fase 14)
+  decide, antes de mirar resultados, si cuentan como conocidos.
 - **DJ.** Hay 78 constantes, 229 lineales y 447 no lineales (los tamaños 2 y 3 solo
   admiten lineales). 45 grupos DJ lineal = BV se excluyen de ambas clases.
 - **Desequilibrio de clases (resuelto en la Fase 7).** Bases útiles entre 5 y 778 por
