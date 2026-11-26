@@ -1,0 +1,1187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "qtagger/demo/0.1.0/global.schema.json",
+  "x-schema-version": "0.1.0",
+  "$defs": {
+    "Architecture": {
+      "additionalProperties": false,
+      "description": "Configuration, layers and parameters of the model.",
+      "properties": {
+        "config": {
+          "additionalProperties": true,
+          "title": "Config",
+          "type": "object"
+        },
+        "layers": {
+          "items": {
+            "$ref": "#/$defs/LayerDescription"
+          },
+          "title": "Layers",
+          "type": "array"
+        },
+        "parameters": {
+          "title": "Parameters",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "config",
+        "layers",
+        "parameters"
+      ],
+      "title": "Architecture",
+      "type": "object"
+    },
+    "BaselineRow": {
+      "additionalProperties": false,
+      "description": "A model of the baseline ladder (cross-validation, never test).",
+      "properties": {
+        "rung": {
+          "title": "Rung",
+          "type": "string"
+        },
+        "classifier": {
+          "title": "Classifier",
+          "type": "string"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        },
+        "cv_f1_macro": {
+          "title": "Cv F1 Macro",
+          "type": "number"
+        },
+        "cv_f1_macro_std": {
+          "title": "Cv F1 Macro Std",
+          "type": "number"
+        },
+        "oof_f1_macro": {
+          "title": "Oof F1 Macro",
+          "type": "number"
+        },
+        "oof_f1_macro_ci": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Oof F1 Macro Ci",
+          "type": "array"
+        }
+      },
+      "required": [
+        "rung",
+        "classifier",
+        "target",
+        "cv_f1_macro",
+        "cv_f1_macro_std",
+        "oof_f1_macro",
+        "oof_f1_macro_ci"
+      ],
+      "title": "BaselineRow",
+      "type": "object"
+    },
+    "ClassInfo": {
+      "additionalProperties": false,
+      "description": "A label of the dataset.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "family": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Family"
+        },
+        "status": {
+          "enum": [
+            "trainable",
+            "family_only",
+            "reserved",
+            "unknown_without_family"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "family",
+        "status"
+      ],
+      "title": "ClassInfo",
+      "type": "object"
+    },
+    "ConfusionMatrix": {
+      "additionalProperties": false,
+      "description": "Rows = true class, columns = predicted class.",
+      "properties": {
+        "labels": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Labels",
+          "type": "array"
+        },
+        "matrix": {
+          "items": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "title": "Matrix",
+          "type": "array"
+        }
+      },
+      "required": [
+        "labels",
+        "matrix"
+      ],
+      "title": "ConfusionMatrix",
+      "type": "object"
+    },
+    "Confusions": {
+      "additionalProperties": false,
+      "description": "Confusion matrices of both heads.",
+      "properties": {
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "algorithm": {
+          "$ref": "#/$defs/ConfusionMatrix"
+        },
+        "family": {
+          "$ref": "#/$defs/ConfusionMatrix"
+        }
+      },
+      "required": [
+        "source",
+        "algorithm",
+        "family"
+      ],
+      "title": "Confusions",
+      "type": "object"
+    },
+    "DatasetStats": {
+      "additionalProperties": false,
+      "description": "Counts of the usable canonical circuits.",
+      "properties": {
+        "version": {
+          "title": "Version",
+          "type": "string"
+        },
+        "circuits": {
+          "title": "Circuits",
+          "type": "integer"
+        },
+        "groups": {
+          "title": "Groups",
+          "type": "integer"
+        },
+        "by_level": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "By Level",
+          "type": "object"
+        },
+        "by_family": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "By Family",
+          "type": "object"
+        },
+        "by_class": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "By Class",
+          "type": "object"
+        },
+        "qubits": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Qubits",
+          "type": "object"
+        },
+        "gates": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Gates",
+          "type": "object"
+        }
+      },
+      "required": [
+        "version",
+        "circuits",
+        "groups",
+        "by_level",
+        "by_family",
+        "by_class",
+        "qubits",
+        "gates"
+      ],
+      "title": "DatasetStats",
+      "type": "object"
+    },
+    "Decision": {
+      "additionalProperties": false,
+      "description": "A row of the decision log (docs/DECISIONES.md).",
+      "properties": {
+        "date": {
+          "title": "Date",
+          "type": "string"
+        },
+        "phase": {
+          "title": "Phase",
+          "type": "string"
+        },
+        "decision": {
+          "title": "Decision",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "alternative": {
+          "title": "Alternative",
+          "type": "string"
+        }
+      },
+      "required": [
+        "date",
+        "phase",
+        "decision",
+        "reason",
+        "alternative"
+      ],
+      "title": "Decision",
+      "type": "object"
+    },
+    "FamilyInfo": {
+      "additionalProperties": false,
+      "description": "A family and its algorithms.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "classes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Classes",
+          "type": "array"
+        },
+        "algorithms": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Algorithms",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "classes",
+        "algorithms"
+      ],
+      "title": "FamilyInfo",
+      "type": "object"
+    },
+    "GalleryEntry": {
+      "additionalProperties": false,
+      "description": "A circuit file of the export.",
+      "properties": {
+        "slug": {
+          "title": "Slug",
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "main",
+            "family",
+            "error",
+            "unknown"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "algorithm": {
+          "title": "Algorithm",
+          "type": "string"
+        },
+        "family": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Family"
+        }
+      },
+      "required": [
+        "slug",
+        "role",
+        "path",
+        "algorithm",
+        "family"
+      ],
+      "title": "GalleryEntry",
+      "type": "object"
+    },
+    "LayerDescription": {
+      "additionalProperties": false,
+      "description": "One layer of the model (``CircuitGNN.describe``).",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "inputs": {
+          "title": "Inputs",
+          "type": "integer"
+        },
+        "outputs": {
+          "title": "Outputs",
+          "type": "integer"
+        },
+        "parameters": {
+          "title": "Parameters",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "inputs",
+        "outputs",
+        "parameters"
+      ],
+      "title": "LayerDescription",
+      "type": "object"
+    },
+    "MachineMeasurement": {
+      "additionalProperties": false,
+      "description": "Speed of a machine (results/medicion).",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "device": {
+          "title": "Device",
+          "type": "string"
+        },
+        "mixed_precision": {
+          "title": "Mixed Precision",
+          "type": "boolean"
+        },
+        "seconds_per_epoch": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Seconds Per Epoch"
+        },
+        "hours_per_epoch": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Hours Per Epoch"
+        }
+      },
+      "required": [
+        "name",
+        "device",
+        "mixed_precision",
+        "seconds_per_epoch",
+        "hours_per_epoch"
+      ],
+      "title": "MachineMeasurement",
+      "type": "object"
+    },
+    "MapPoint": {
+      "additionalProperties": false,
+      "description": "A circuit in the 2D reference map.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "class_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Class Label"
+        },
+        "family": {
+          "title": "Family",
+          "type": "string"
+        },
+        "predicted": {
+          "title": "Predicted",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "x",
+        "y",
+        "class_label",
+        "family",
+        "predicted"
+      ],
+      "title": "MapPoint",
+      "type": "object"
+    },
+    "ModelInfo": {
+      "additionalProperties": false,
+      "description": "The model that produced the traces, predictions and explanations.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "fingerprint": {
+          "description": "Fingerprint of the training run (run_identity).",
+          "title": "Fingerprint",
+          "type": "string"
+        },
+        "training_code": {
+          "description": "Version of the training code (source hash).",
+          "title": "Training Code",
+          "type": "string"
+        },
+        "cv_block": {
+          "description": "Cross-validation block held out when training.",
+          "title": "Cv Block",
+          "type": "integer"
+        },
+        "device": {
+          "title": "Device",
+          "type": "string"
+        },
+        "precision": {
+          "title": "Precision",
+          "type": "string"
+        },
+        "epochs": {
+          "title": "Epochs",
+          "type": "integer"
+        },
+        "f1_macro_algorithm": {
+          "description": "Macro F1 on the held-out block.",
+          "title": "F1 Macro Algorithm",
+          "type": "number"
+        },
+        "f1_macro_family": {
+          "title": "F1 Macro Family",
+          "type": "number"
+        },
+        "architecture": {
+          "$ref": "#/$defs/Architecture"
+        },
+        "node_features": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Node Features",
+          "type": "array"
+        },
+        "edge_features": {
+          "description": "Edge attributes the model reads.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Edge Features",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "fingerprint",
+        "training_code",
+        "cv_block",
+        "device",
+        "precision",
+        "epochs",
+        "f1_macro_algorithm",
+        "f1_macro_family",
+        "architecture",
+        "node_features",
+        "edge_features"
+      ],
+      "title": "ModelInfo",
+      "type": "object"
+    },
+    "ReferenceMap": {
+      "additionalProperties": false,
+      "description": "2D projection of the summary vectors of known circuits.",
+      "properties": {
+        "method": {
+          "title": "Method",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "explained_variance": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Explained Variance",
+          "type": "array"
+        },
+        "points": {
+          "items": {
+            "$ref": "#/$defs/MapPoint"
+          },
+          "title": "Points",
+          "type": "array"
+        }
+      },
+      "required": [
+        "method",
+        "source",
+        "explained_variance",
+        "points"
+      ],
+      "title": "ReferenceMap",
+      "type": "object"
+    },
+    "Section_Confusions_": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "available",
+            "provisional",
+            "pending"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Confusions"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "Section[Confusions]",
+      "type": "object"
+    },
+    "Section_DatasetStats_": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "available",
+            "provisional",
+            "pending"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DatasetStats"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "Section[DatasetStats]",
+      "type": "object"
+    },
+    "Section_ReferenceMap_": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "available",
+            "provisional",
+            "pending"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReferenceMap"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "Section[ReferenceMap]",
+      "type": "object"
+    },
+    "Section_list_BaselineRow__": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "available",
+            "provisional",
+            "pending"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/BaselineRow"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Data"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "Section[list[BaselineRow]]",
+      "type": "object"
+    },
+    "Section_list_Decision__": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "available",
+            "provisional",
+            "pending"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Decision"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Data"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "Section[list[Decision]]",
+      "type": "object"
+    },
+    "Section_list_MachineMeasurement__": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "available",
+            "provisional",
+            "pending"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/MachineMeasurement"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Data"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "Section[list[MachineMeasurement]]",
+      "type": "object"
+    },
+    "Section_list_TrainingCurve__": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "available",
+            "provisional",
+            "pending"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/TrainingCurve"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Data"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "Section[list[TrainingCurve]]",
+      "type": "object"
+    },
+    "Section_list_dict_str__Any___": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "available",
+            "provisional",
+            "pending"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Data"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "Section[list[dict[str, Any]]]",
+      "type": "object"
+    },
+    "TrainingCurve": {
+      "additionalProperties": false,
+      "description": "Training curve of one run.",
+      "properties": {
+        "run": {
+          "title": "Run",
+          "type": "string"
+        },
+        "points": {
+          "items": {
+            "$ref": "#/$defs/TrainingPoint"
+          },
+          "title": "Points",
+          "type": "array"
+        }
+      },
+      "required": [
+        "run",
+        "points"
+      ],
+      "title": "TrainingCurve",
+      "type": "object"
+    },
+    "TrainingPoint": {
+      "additionalProperties": false,
+      "description": "An epoch of a training curve.",
+      "properties": {
+        "epoch": {
+          "title": "Epoch",
+          "type": "integer"
+        },
+        "loss": {
+          "title": "Loss",
+          "type": "number"
+        },
+        "loss_algorithm": {
+          "title": "Loss Algorithm",
+          "type": "number"
+        },
+        "loss_family": {
+          "title": "Loss Family",
+          "type": "number"
+        },
+        "learning_rate": {
+          "title": "Learning Rate",
+          "type": "number"
+        },
+        "f1_macro_algorithm": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "F1 Macro Algorithm"
+        },
+        "f1_macro_family": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "F1 Macro Family"
+        }
+      },
+      "required": [
+        "epoch",
+        "loss",
+        "loss_algorithm",
+        "loss_family",
+        "learning_rate",
+        "f1_macro_algorithm",
+        "f1_macro_family"
+      ],
+      "title": "TrainingPoint",
+      "type": "object"
+    },
+    "Versions": {
+      "additionalProperties": false,
+      "description": "Versions behind an export.",
+      "properties": {
+        "schema_version": {
+          "default": "0.1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "qcclass_commit": {
+          "title": "Qcclass Commit",
+          "type": "string"
+        },
+        "code_dirty": {
+          "title": "Code Dirty",
+          "type": "boolean"
+        },
+        "dataset": {
+          "title": "Dataset",
+          "type": "string"
+        },
+        "dataset_fingerprint": {
+          "title": "Dataset Fingerprint",
+          "type": "string"
+        },
+        "libraries": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Libraries",
+          "type": "object"
+        }
+      },
+      "required": [
+        "qcclass_commit",
+        "code_dirty",
+        "dataset",
+        "dataset_fingerprint",
+        "libraries"
+      ],
+      "title": "Versions",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Global views (``global.json``).",
+  "properties": {
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "provisional": {
+      "title": "Provisional",
+      "type": "boolean"
+    },
+    "generated_at": {
+      "title": "Generated At",
+      "type": "string"
+    },
+    "versions": {
+      "$ref": "#/$defs/Versions"
+    },
+    "model": {
+      "$ref": "#/$defs/ModelInfo"
+    },
+    "classes": {
+      "items": {
+        "$ref": "#/$defs/ClassInfo"
+      },
+      "title": "Classes",
+      "type": "array"
+    },
+    "families": {
+      "items": {
+        "$ref": "#/$defs/FamilyInfo"
+      },
+      "title": "Families",
+      "type": "array"
+    },
+    "gallery": {
+      "items": {
+        "$ref": "#/$defs/GalleryEntry"
+      },
+      "title": "Gallery",
+      "type": "array"
+    },
+    "selection_criteria": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Selection Criteria",
+      "type": "array"
+    },
+    "reference_map": {
+      "$ref": "#/$defs/Section_ReferenceMap_"
+    },
+    "confusion": {
+      "$ref": "#/$defs/Section_Confusions_"
+    },
+    "baseline_ladder": {
+      "$ref": "#/$defs/Section_list_BaselineRow__"
+    },
+    "training_curves": {
+      "$ref": "#/$defs/Section_list_TrainingCurve__"
+    },
+    "optuna_history": {
+      "$ref": "#/$defs/Section_list_dict_str__Any___"
+    },
+    "ablations": {
+      "$ref": "#/$defs/Section_list_dict_str__Any___"
+    },
+    "decisions": {
+      "$ref": "#/$defs/Section_list_Decision__"
+    },
+    "dataset": {
+      "$ref": "#/$defs/Section_DatasetStats_"
+    },
+    "measurements": {
+      "$ref": "#/$defs/Section_list_MachineMeasurement__"
+    }
+  },
+  "required": [
+    "provisional",
+    "generated_at",
+    "versions",
+    "model",
+    "classes",
+    "families",
+    "gallery",
+    "selection_criteria",
+    "reference_map",
+    "confusion",
+    "baseline_ladder",
+    "training_curves",
+    "optuna_history",
+    "ablations",
+    "decisions",
+    "dataset",
+    "measurements"
+  ],
+  "title": "GlobalExport",
+  "type": "object"
+}

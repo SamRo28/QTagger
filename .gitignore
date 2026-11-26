@@ -11,6 +11,9 @@
 /results/baseline/estudios/
 /results/baseline/cache/
 
+# QTaggerDemo exports (qcclass exportar-demo; regenerated from results/)
+/exports/
+
 # Reduced dataset (configs/dataset_mini.yaml)
 /data_mini/
 /results_mini/

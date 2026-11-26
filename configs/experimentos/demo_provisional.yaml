@@ -1,0 +1,35 @@
+# Phase 11b: provisional export for QTaggerDemo (qcclass exportar-demo --provisional).
+# Model: the phase 11 reference on block 0. Only the train + val pool of `aleatorio` and a
+# circuit generated on the spot are used; never test, never the unknown set. Everything is
+# marked provisional; phase 18 replaces it with the final models and a gallery from test.
+
+nombre: demo_provisional
+semilla: 42
+salida: exports/demo/provisional       # relative to the repository root
+
+modelo:
+  experimento: configs/experimentos/gnn_referencia.yaml
+  bloque: 0
+  directorio: null                     # null = newest finished run of the experiment on the
+                                       # block with its model and epochs (results/gnn/...)
+
+galeria:                               # circuits of the held-out groups of the block
+  principal: {algoritmo: grover, cubits: [3, 4]}   # small Grover: 3-4 search qubits
+  min_puertas: 20                      # F2 gates of the candidates
+  max_puertas: 1500                    # keeps every file well under the size limits
+  columnas_por_rango: true             # a gate occupies every qubit between its lowest and
+                                       # highest one in the drawings (as its box or CX line)
+  aleatorio:                           # the "unknown" example, generated now
+    cubits: 4
+    profundidad: 8
+    max_operandos: 2
+
+explicacion:
+  pasos: 64                            # integrated gradients, midpoint Riemann sum
+
+desconocidos:
+  aceptacion: 0.95                     # threshold: accepts 95 % of the known held-out circuits
+
+limites:                               # guide per circuit (a warning above them)
+  json_mb: 2
+  binario_mb: 5

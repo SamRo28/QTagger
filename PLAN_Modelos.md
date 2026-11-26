@@ -148,6 +148,71 @@ Entrena la configuración de referencia en un bloque en la RTX 3050 y compara el
 
 ---
 
+## Fase 11b. Contrato de datos para QTaggerDemo y exportación provisional (en paralelo a la fase 12)
+
+**Contexto.** QTaggerDemo es una web estática en React, en un repositorio aparte, que explica el proyecto de forma visual. Su laboratorio anima 12 escenas:
+
+1. carga;
+2. circuito con sus bloques;
+3. aplanado;
+4. circuito → grafo;
+5. puerta → vector;
+6. capa de entrada;
+7. paso de mensajes capa a capa;
+8. Jumping Knowledge;
+9. agregación global;
+10. predicción;
+11. explicación;
+12. ¿desconocido?
+
+Tiene además un modo «seguir una puerta» que acompaña a una puerta concreta por todo el recorrido. **El esquema de datos vive en QTagger** y es la fuente única de verdad: QTaggerDemo genera sus tipos a partir de una versión etiquetada.
+
+**Restricciones:**
+
+- Se ejecuta en el m3pro (CPU), sin interrumpir la búsqueda de la fase 12.
+- No se modifican los módulos de entrenamiento ni nada que cambie la huella de los entrenamientos.
+- No se hace `pull` en rtx3050 ni en m1pro mientras dure la búsqueda.
+- No se usan ni el test ni los desconocidos.
+- Todo lo exportado se marca como provisional.
+
+### Tareas
+
+1. **Esquema** en `esquema/demo/` (JSON Schema, `schema_version` 0.1.0):
+   - `circuito.schema.json`, un archivo por circuito, con estas partes:
+     - `model`: versiones y arquitectura (capas, dimensiones, parámetros por capa);
+     - `circuit`: algoritmo, familia, nivel, cúbits, profundidad y origen;
+     - `original`: instrucciones de F1 con su columna en el dibujo y los bloques (id, nombre, cúbits, columna inicial y final);
+     - `canonical`: puertas de F2 con índice de nodo en F4, tipo, cúbits, columna, ángulo y bloque de origen, más la extensión de cada bloque en columnas canónicas, para animar el aplanado;
+     - `graph`: aristas con dirección y rol, y atributos de cada nodo con sus nombres;
+     - `trace`: índice del binario, coordenadas 2D de cada nodo en cada capa y pesos de atención si existen;
+     - `prediction`: probabilidades de algoritmo y familia;
+     - `explanation`: importancia por puerta (media y desviación), importancia por bloque y método;
+     - `unknown`: distancias por clase, umbral, veredicto y posición en el mapa 2D global.
+   - Binario `trazas.bin` en float16 *little-endian*. El JSON incluye un índice (nombre, desplazamiento y forma) para: atributos de entrada [N, F], salida de la capa de entrada [N, D], cada capa [N, D], nodo virtual [L, D] si existe, Jumping Knowledge y vector resumen.
+   - Coordenadas 2D: PCA por capa, **alineada con la capa anterior** (Procrustes) para que la animación sea continua y no dé saltos por giros o reflejos de la proyección.
+   - Disposición en columnas: cada puerta en la primera columna libre de todos sus cúbits, calculada para F1 y para F2.
+   - `global.schema.json`: clases y familias con su estado, mapa 2D de referencia, matrices de confusión, escalera de líneas base, curvas de entrenamiento, historial de Optuna, ablaciones, decisiones y versiones.
+   - Modelos pydantic con validación, ejemplos válidos en los tests y etiqueta git `esquema-demo-v0.1.0`.
+2. **Exportación provisional** (`qcclass exportar-demo --provisional`):
+   - Modelo: la referencia de la fase 11 (GINE 64×3, bloque 0).
+   - Galería:
+     - un Grover pequeño (3–4 cúbits de búsqueda) como circuito principal;
+     - uno por familia;
+     - un error de la red, si lo hay;
+     - todos **de la validación del bloque 0**, cuyos grupos no vio ese modelo;
+     - y, como ejemplo de «desconocido», un circuito aleatorio generado en ese momento, que no forma parte del dataset.
+   - Desconocidos provisionales: Mahalanobis con medias y covarianza de la parte de entrenamiento del bloque 0, y umbral que acepta el 95 % de los conocidos de su validación.
+   - Explicación provisional: gradientes integrados con el modelo de referencia.
+   - Global provisional: clases, familias, escalera de líneas base (resultados reales de validación cruzada), estadísticas del dataset y medición. Lo que aún no exista queda vacío y marcado.
+   - Criterios de selección documentados. Todo lleva `provisional: true`.
+   - Salida en `exports/demo/provisional/`, con un límite orientativo de 2 MB de JSON y 5 MB de binario por circuito.
+
+### Comprobación
+
+Todo valida contra el esquema y los tamaños están dentro del límite. Un test reconstruye un vector desde el binario y coincide con el que da el modelo.
+
+---
+
 ## Fase 12. Búsqueda de hiperparámetros de la GNN
 
 ### Tareas
@@ -300,7 +365,7 @@ Se ejecuta **una sola vez**. Lo que venga después es análisis posterior.
    - Código: `LICENSE` (MIT), `CITATION.cff` y una sección del README para reproducir todo desde cero. Etiqueta de *release*.
    - Dataset para Zenodo: circuitos canónicos (QPY y QASM), metadatos, particiones, bloques, etiquetas y `VERSION.json` en un archivo comprimido con su ficha de metadatos, incluida la atribución a MQT Bench y su licencia.
    - Modelos finales (pesos y configuraciones) y una exportación del resumen de MLflow en CSV.
-2. **`qcclass exportar-demo` y `docs/ESQUEMA_DEMO.md`** (esquema fijo y documentado):
+2. **`qcclass exportar-demo` con los modelos finales**, siguiendo la última versión del esquema `esquema/demo/` de la fase 11b, que sustituye a la galería provisional. La galería definitiva sale **del test**, porque tras la fase 17 ya se puede usar: Grover pequeño como circuito principal, uno por familia, uno de los desconocidos y un error de la red. Las importancias son la media y la desviación sobre las 10 semillas, y los desconocidos usan el umbral de la fase 16. El archivo global va completo. Debe contener:
    - **Circuitos de ejemplo:** 2 de test por clase (incluido un error cuando exista) y 1 por cada algoritmo desconocido. Para cada uno:
      - QASM y dibujo en SVG;
      - lista de puertas con índice de nodo en F4, tipo, cúbits, columna en el dibujo, ángulo y bloque F7;
@@ -320,6 +385,7 @@ Se ejecuta **una sola vez**. Lo que venga después es análisis posterior.
 | 9 | — | Implementación |
 | 10 | M3 Pro | 3–6 h (18 estudios) |
 | 11 | RTX 3050 | Minutos (comprobaciones) |
+| 11b | M3 Pro (CPU) | 1–3 h, en paralelo a la fase 12 |
 | 12 | RTX 3050 (+ M3 Pro) | ~25 h |
 | 13 | RTX 3050 | ~20 h (+ 5–10 h si se hace la red convolucional 1D) |
 | 15 | RTX 3050 y M3 Pro | ~6 h |

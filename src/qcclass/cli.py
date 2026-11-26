@@ -1000,3 +1000,57 @@ def linea_base(
         typer.echo(f"Finalist {row.peldano}: {row.clasificador} ({100 * row.cv_f1_macro:.1f} %)")
     if run.summary:
         typer.echo(f"Summary: {run.summary}")
+
+
+DEFAULT_DEMO_CONFIG = Path("configs/experimentos/demo_provisional.yaml")
+
+
+@app.command("esquema-demo")
+def esquema_demo(config: ConfigOption = DEFAULT_DATASET_CONFIG) -> None:
+    """Phase 11b: write the JSON Schema files of the QTaggerDemo export (esquema/demo/)."""
+    from qcclass.demo.esquema import SCHEMA_DIR, SCHEMA_VERSION, write_schemas
+
+    dataset = _load_dataset_config(config)
+    for path in write_schemas(dataset.rutas.raiz / SCHEMA_DIR):
+        typer.echo(f"{path} (schema {SCHEMA_VERSION})")
+
+
+@app.command("exportar-demo")
+def exportar_demo(
+    config: ConfigOption = DEFAULT_DATASET_CONFIG,
+    splits: SplitsOption = DEFAULT_SPLITS_CONFIG,
+    experimento: Annotated[Path, typer.Option(help="Export configuration.")] = DEFAULT_DEMO_CONFIG,
+    provisional: Annotated[
+        bool,
+        typer.Option(
+            "--provisional", help="Phase 11b export (reference model, validation of block 0)."
+        ),
+    ] = False,
+) -> None:
+    """Export the data of QTaggerDemo (schema esquema/demo/); before phase 18 only the
+    provisional export exists. Never reads test nor the unknown set."""
+    from qcclass.config import ConfigError
+    from qcclass.demo.exportar import export_demo, load_demo_config, validate_export
+    from qcclass.seguimiento.entorno import load_env
+    from qcclass.versionado import VersionError
+
+    if not provisional:
+        typer.echo("Error: before phase 18 only --provisional exists", err=True)
+        raise typer.Exit(code=1)
+    dataset = _load_dataset_config(config)
+    split_config = _load_splits_config(splits, dataset)
+    try:
+        load_env(dataset.rutas.raiz)
+        demo = load_demo_config(experimento, dataset.rutas.raiz)
+        report = export_demo(dataset, split_config, demo, provisional=True)
+        checked = validate_export(report.directory)
+    except (ConfigError, VersionError, ValueError, FileNotFoundError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"Export: {report.directory} ({checked} JSON files valid against the schema)")
+    for entry in report.gallery:
+        typer.echo(f"  {entry.role:8s} {entry.algorithm:28s} {entry.slug}")
+    for name, size in report.files.items():
+        typer.echo(f"  {size / 1024:9.1f} KB  {name}")
+    if report.over_limit:
+        typer.echo(f"Above the size guide: {report.over_limit}", err=True)

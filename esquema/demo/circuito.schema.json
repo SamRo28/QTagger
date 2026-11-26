@@ -1,0 +1,1152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "qtagger/demo/0.1.0/circuito.schema.json",
+  "x-schema-version": "0.1.0",
+  "$defs": {
+    "Architecture": {
+      "additionalProperties": false,
+      "description": "Configuration, layers and parameters of the model.",
+      "properties": {
+        "config": {
+          "additionalProperties": true,
+          "title": "Config",
+          "type": "object"
+        },
+        "layers": {
+          "items": {
+            "$ref": "#/$defs/LayerDescription"
+          },
+          "title": "Layers",
+          "type": "array"
+        },
+        "parameters": {
+          "title": "Parameters",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "config",
+        "layers",
+        "parameters"
+      ],
+      "title": "Architecture",
+      "type": "object"
+    },
+    "AttentionTrace": {
+      "additionalProperties": false,
+      "description": "Attention weights (GATv2 per layer and/or the pooling gate).",
+      "properties": {
+        "layers": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Layers"
+        },
+        "pooling": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Pooling"
+        }
+      },
+      "required": [
+        "layers",
+        "pooling"
+      ],
+      "title": "AttentionTrace",
+      "type": "object"
+    },
+    "Block": {
+      "additionalProperties": false,
+      "description": "A top-level instruction of F1 (a block of the circuit).",
+      "properties": {
+        "id": {
+          "description": "Index of the instruction in F1.",
+          "title": "Id",
+          "type": "integer"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "qubits": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Qubits",
+          "type": "array"
+        },
+        "start_column": {
+          "title": "Start Column",
+          "type": "integer"
+        },
+        "end_column": {
+          "title": "End Column",
+          "type": "integer"
+        },
+        "num_canonical_gates": {
+          "title": "Num Canonical Gates",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "qubits",
+        "start_column",
+        "end_column",
+        "num_canonical_gates"
+      ],
+      "title": "Block",
+      "type": "object"
+    },
+    "BlockExtent": {
+      "additionalProperties": false,
+      "description": "Columns of F2 covered by the gates of one block (to animate the flattening).",
+      "properties": {
+        "block": {
+          "title": "Block",
+          "type": "integer"
+        },
+        "start_column": {
+          "title": "Start Column",
+          "type": "integer"
+        },
+        "end_column": {
+          "title": "End Column",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "block",
+        "start_column",
+        "end_column"
+      ],
+      "title": "BlockExtent",
+      "type": "object"
+    },
+    "BlockImportance": {
+      "additionalProperties": false,
+      "description": "Importance of one F1 block (sum over its gates).",
+      "properties": {
+        "block": {
+          "title": "Block",
+          "type": "integer"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "mean": {
+          "title": "Mean",
+          "type": "number"
+        },
+        "std": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Std"
+        }
+      },
+      "required": [
+        "block",
+        "name",
+        "mean",
+        "std"
+      ],
+      "title": "BlockImportance",
+      "type": "object"
+    },
+    "CanonicalCircuit": {
+      "additionalProperties": false,
+      "description": "F2: the flattened circuit (rz, sx, x, cx).",
+      "properties": {
+        "num_columns": {
+          "title": "Num Columns",
+          "type": "integer"
+        },
+        "gates": {
+          "items": {
+            "$ref": "#/$defs/CanonicalGate"
+          },
+          "title": "Gates",
+          "type": "array"
+        },
+        "block_extents": {
+          "items": {
+            "$ref": "#/$defs/BlockExtent"
+          },
+          "title": "Block Extents",
+          "type": "array"
+        },
+        "blocks_known": {
+          "description": "True if every gate knows its F1 block.",
+          "title": "Blocks Known",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "num_columns",
+        "gates",
+        "block_extents",
+        "blocks_known"
+      ],
+      "title": "CanonicalCircuit",
+      "type": "object"
+    },
+    "CanonicalGate": {
+      "additionalProperties": false,
+      "description": "A gate of F2; ``node`` is its node index in F4 (the same order).",
+      "properties": {
+        "node": {
+          "title": "Node",
+          "type": "integer"
+        },
+        "name": {
+          "enum": [
+            "rz",
+            "sx",
+            "x",
+            "cx"
+          ],
+          "title": "Name",
+          "type": "string"
+        },
+        "qubits": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Qubits",
+          "type": "array"
+        },
+        "column": {
+          "title": "Column",
+          "type": "integer"
+        },
+        "angle": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Angle"
+        },
+        "block": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Id of the F1 block it comes from (null if unknown).",
+          "title": "Block"
+        }
+      },
+      "required": [
+        "node",
+        "name",
+        "qubits",
+        "column",
+        "angle",
+        "block"
+      ],
+      "title": "CanonicalGate",
+      "type": "object"
+    },
+    "CircuitInfo": {
+      "additionalProperties": false,
+      "description": "Labels and size of the circuit.",
+      "properties": {
+        "id": {
+          "description": "Dataset id of the canonical circuit (or of the generated one).",
+          "title": "Id",
+          "type": "string"
+        },
+        "group_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Group Id"
+        },
+        "algorithm": {
+          "title": "Algorithm",
+          "type": "string"
+        },
+        "family": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Family"
+        },
+        "class_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Trainable class; null if family only/unknown.",
+          "title": "Class Label"
+        },
+        "level": {
+          "title": "Level",
+          "type": "string"
+        },
+        "num_qubits": {
+          "title": "Num Qubits",
+          "type": "integer"
+        },
+        "depth": {
+          "title": "Depth",
+          "type": "integer"
+        },
+        "num_gates": {
+          "title": "Num Gates",
+          "type": "integer"
+        },
+        "source": {
+          "enum": [
+            "mqt",
+            "propio",
+            "generado"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "cv_block": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Block of its group (null if generated).",
+          "title": "Cv Block"
+        },
+        "canonical_variant": {
+          "title": "Canonical Variant",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "group_id",
+        "algorithm",
+        "family",
+        "class_label",
+        "level",
+        "num_qubits",
+        "depth",
+        "num_gates",
+        "source",
+        "cv_block",
+        "canonical_variant"
+      ],
+      "title": "CircuitInfo",
+      "type": "object"
+    },
+    "ClassDistance": {
+      "additionalProperties": false,
+      "description": "Mahalanobis distance to one class.",
+      "properties": {
+        "class_name": {
+          "title": "Class Name",
+          "type": "string"
+        },
+        "distance": {
+          "title": "Distance",
+          "type": "number"
+        }
+      },
+      "required": [
+        "class_name",
+        "distance"
+      ],
+      "title": "ClassDistance",
+      "type": "object"
+    },
+    "Edges": {
+      "additionalProperties": false,
+      "description": "Stored F4 edges ``source -> target`` (time direction), with the roles of the qubit.",
+      "properties": {
+        "source": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Source",
+          "type": "array"
+        },
+        "target": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Target",
+          "type": "array"
+        },
+        "roles": {
+          "description": "[origen_control, origen_destino, ...]",
+          "items": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "title": "Roles",
+          "type": "array"
+        }
+      },
+      "required": [
+        "source",
+        "target",
+        "roles"
+      ],
+      "title": "Edges",
+      "type": "object"
+    },
+    "Explanation": {
+      "additionalProperties": false,
+      "description": "Importance of every gate for the predicted class.",
+      "properties": {
+        "method": {
+          "title": "Method",
+          "type": "string"
+        },
+        "target_class": {
+          "title": "Target Class",
+          "type": "string"
+        },
+        "steps": {
+          "title": "Steps",
+          "type": "integer"
+        },
+        "baseline": {
+          "title": "Baseline",
+          "type": "string"
+        },
+        "num_models": {
+          "title": "Num Models",
+          "type": "integer"
+        },
+        "gates": {
+          "$ref": "#/$defs/Importance"
+        },
+        "blocks": {
+          "items": {
+            "$ref": "#/$defs/BlockImportance"
+          },
+          "title": "Blocks",
+          "type": "array"
+        },
+        "completeness_error": {
+          "description": "|sum of attributions - (f(x) - f(baseline))| relative to |f(x) - f(b)|.",
+          "title": "Completeness Error",
+          "type": "number"
+        }
+      },
+      "required": [
+        "method",
+        "target_class",
+        "steps",
+        "baseline",
+        "num_models",
+        "gates",
+        "blocks",
+        "completeness_error"
+      ],
+      "title": "Explanation",
+      "type": "object"
+    },
+    "Graph": {
+      "additionalProperties": false,
+      "description": "F4: gate dependency graph.",
+      "properties": {
+        "num_nodes": {
+          "title": "Num Nodes",
+          "type": "integer"
+        },
+        "num_edges": {
+          "title": "Num Edges",
+          "type": "integer"
+        },
+        "direction": {
+          "const": "forward",
+          "default": "forward",
+          "title": "Direction",
+          "type": "string"
+        },
+        "model_uses_reverse_edges": {
+          "description": "The model also reads every edge backwards (attribute atras = 1).",
+          "title": "Model Uses Reverse Edges",
+          "type": "boolean"
+        },
+        "role_names": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Role Names",
+          "type": "array"
+        },
+        "edges": {
+          "$ref": "#/$defs/Edges"
+        },
+        "node_feature_names": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Node Feature Names",
+          "type": "array"
+        },
+        "node_features_tensor": {
+          "description": "Name of the [N, F] tensor in the binary.",
+          "title": "Node Features Tensor",
+          "type": "string"
+        }
+      },
+      "required": [
+        "num_nodes",
+        "num_edges",
+        "model_uses_reverse_edges",
+        "role_names",
+        "edges",
+        "node_feature_names",
+        "node_features_tensor"
+      ],
+      "title": "Graph",
+      "type": "object"
+    },
+    "HeadPrediction": {
+      "additionalProperties": false,
+      "description": "Probabilities of one head.",
+      "properties": {
+        "classes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Classes",
+          "type": "array"
+        },
+        "probabilities": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Probabilities",
+          "type": "array"
+        },
+        "predicted": {
+          "title": "Predicted",
+          "type": "string"
+        },
+        "true": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "True"
+        },
+        "correct": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Correct"
+        }
+      },
+      "required": [
+        "classes",
+        "probabilities",
+        "predicted",
+        "true",
+        "correct"
+      ],
+      "title": "HeadPrediction",
+      "type": "object"
+    },
+    "Importance": {
+      "additionalProperties": false,
+      "description": "Mean and standard deviation over models (``std`` null with a single model).",
+      "properties": {
+        "mean": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Mean",
+          "type": "array"
+        },
+        "std": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Std"
+        }
+      },
+      "required": [
+        "mean",
+        "std"
+      ],
+      "title": "Importance",
+      "type": "object"
+    },
+    "Instruction": {
+      "additionalProperties": false,
+      "description": "An instruction of F1 placed in its drawing column.",
+      "properties": {
+        "index": {
+          "title": "Index",
+          "type": "integer"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "qubits": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Qubits",
+          "type": "array"
+        },
+        "params": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Params",
+          "type": "array"
+        },
+        "column": {
+          "title": "Column",
+          "type": "integer"
+        },
+        "block": {
+          "description": "Id of its block (every F1 instruction is a block).",
+          "title": "Block",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "index",
+        "name",
+        "qubits",
+        "params",
+        "column",
+        "block"
+      ],
+      "title": "Instruction",
+      "type": "object"
+    },
+    "LayerCoordinates": {
+      "additionalProperties": false,
+      "description": "2D position of every node in one stage of the model.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "explained_variance": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Explained Variance",
+          "type": "array"
+        },
+        "points": {
+          "description": "[N][2]",
+          "items": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "title": "Points",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "explained_variance",
+        "points"
+      ],
+      "title": "LayerCoordinates",
+      "type": "object"
+    },
+    "LayerDescription": {
+      "additionalProperties": false,
+      "description": "One layer of the model (``CircuitGNN.describe``).",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "inputs": {
+          "title": "Inputs",
+          "type": "integer"
+        },
+        "outputs": {
+          "title": "Outputs",
+          "type": "integer"
+        },
+        "parameters": {
+          "title": "Parameters",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "inputs",
+        "outputs",
+        "parameters"
+      ],
+      "title": "LayerDescription",
+      "type": "object"
+    },
+    "ModelInfo": {
+      "additionalProperties": false,
+      "description": "The model that produced the traces, predictions and explanations.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "fingerprint": {
+          "description": "Fingerprint of the training run (run_identity).",
+          "title": "Fingerprint",
+          "type": "string"
+        },
+        "training_code": {
+          "description": "Version of the training code (source hash).",
+          "title": "Training Code",
+          "type": "string"
+        },
+        "cv_block": {
+          "description": "Cross-validation block held out when training.",
+          "title": "Cv Block",
+          "type": "integer"
+        },
+        "device": {
+          "title": "Device",
+          "type": "string"
+        },
+        "precision": {
+          "title": "Precision",
+          "type": "string"
+        },
+        "epochs": {
+          "title": "Epochs",
+          "type": "integer"
+        },
+        "f1_macro_algorithm": {
+          "description": "Macro F1 on the held-out block.",
+          "title": "F1 Macro Algorithm",
+          "type": "number"
+        },
+        "f1_macro_family": {
+          "title": "F1 Macro Family",
+          "type": "number"
+        },
+        "architecture": {
+          "$ref": "#/$defs/Architecture"
+        },
+        "node_features": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Node Features",
+          "type": "array"
+        },
+        "edge_features": {
+          "description": "Edge attributes the model reads.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Edge Features",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "fingerprint",
+        "training_code",
+        "cv_block",
+        "device",
+        "precision",
+        "epochs",
+        "f1_macro_algorithm",
+        "f1_macro_family",
+        "architecture",
+        "node_features",
+        "edge_features"
+      ],
+      "title": "ModelInfo",
+      "type": "object"
+    },
+    "OriginalCircuit": {
+      "additionalProperties": false,
+      "description": "F1: the circuit as produced by its source, with its blocks.",
+      "properties": {
+        "num_columns": {
+          "title": "Num Columns",
+          "type": "integer"
+        },
+        "instructions": {
+          "items": {
+            "$ref": "#/$defs/Instruction"
+          },
+          "title": "Instructions",
+          "type": "array"
+        },
+        "blocks": {
+          "items": {
+            "$ref": "#/$defs/Block"
+          },
+          "title": "Blocks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "num_columns",
+        "instructions",
+        "blocks"
+      ],
+      "title": "OriginalCircuit",
+      "type": "object"
+    },
+    "Prediction": {
+      "additionalProperties": false,
+      "description": "Both heads.",
+      "properties": {
+        "algorithm": {
+          "$ref": "#/$defs/HeadPrediction"
+        },
+        "family": {
+          "$ref": "#/$defs/HeadPrediction"
+        }
+      },
+      "required": [
+        "algorithm",
+        "family"
+      ],
+      "title": "Prediction",
+      "type": "object"
+    },
+    "Selection": {
+      "additionalProperties": false,
+      "description": "Why a circuit is in the gallery.",
+      "properties": {
+        "role": {
+          "enum": [
+            "main",
+            "family",
+            "error",
+            "unknown"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "reason"
+      ],
+      "title": "Selection",
+      "type": "object"
+    },
+    "Trace": {
+      "additionalProperties": false,
+      "description": "Model traces: index of the binary and 2D coordinates per stage.",
+      "properties": {
+        "binary": {
+          "title": "Binary",
+          "type": "string"
+        },
+        "dtype": {
+          "const": "float16",
+          "default": "float16",
+          "title": "Dtype",
+          "type": "string"
+        },
+        "byte_order": {
+          "const": "little",
+          "default": "little",
+          "title": "Byte Order",
+          "type": "string"
+        },
+        "tensors": {
+          "items": {
+            "$ref": "#/$defs/TraceTensor"
+          },
+          "title": "Tensors",
+          "type": "array"
+        },
+        "stages": {
+          "description": "Node stages in order: entrada, capa_1, ..., JK.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Stages",
+          "type": "array"
+        },
+        "coordinates_method": {
+          "title": "Coordinates Method",
+          "type": "string"
+        },
+        "coordinates": {
+          "items": {
+            "$ref": "#/$defs/LayerCoordinates"
+          },
+          "title": "Coordinates",
+          "type": "array"
+        },
+        "attention": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AttentionTrace"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "binary",
+        "tensors",
+        "stages",
+        "coordinates_method",
+        "coordinates",
+        "attention"
+      ],
+      "title": "Trace",
+      "type": "object"
+    },
+    "TraceTensor": {
+      "additionalProperties": false,
+      "description": "A tensor of ``trazas.bin``.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "offset": {
+          "description": "Byte offset in the binary.",
+          "title": "Offset",
+          "type": "integer"
+        },
+        "shape": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Shape",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "offset",
+        "shape"
+      ],
+      "title": "TraceTensor",
+      "type": "object"
+    },
+    "UnknownCheck": {
+      "additionalProperties": false,
+      "description": "Is the circuit unknown? Distances to the training classes and the threshold.",
+      "properties": {
+        "method": {
+          "title": "Method",
+          "type": "string"
+        },
+        "reference": {
+          "title": "Reference",
+          "type": "string"
+        },
+        "distances": {
+          "items": {
+            "$ref": "#/$defs/ClassDistance"
+          },
+          "title": "Distances",
+          "type": "array"
+        },
+        "nearest_class": {
+          "title": "Nearest Class",
+          "type": "string"
+        },
+        "min_distance": {
+          "title": "Min Distance",
+          "type": "number"
+        },
+        "threshold": {
+          "title": "Threshold",
+          "type": "number"
+        },
+        "acceptance": {
+          "description": "Share of known validation circuits accepted.",
+          "title": "Acceptance",
+          "type": "number"
+        },
+        "verdict": {
+          "enum": [
+            "known",
+            "unknown"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        },
+        "map_position": {
+          "description": "[x, y] in the global reference map.",
+          "items": {
+            "type": "number"
+          },
+          "title": "Map Position",
+          "type": "array"
+        }
+      },
+      "required": [
+        "method",
+        "reference",
+        "distances",
+        "nearest_class",
+        "min_distance",
+        "threshold",
+        "acceptance",
+        "verdict",
+        "map_position"
+      ],
+      "title": "UnknownCheck",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One gallery circuit (``circuito.json``).",
+  "properties": {
+    "schema_version": {
+      "const": "0.1.0",
+      "default": "0.1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "provisional": {
+      "title": "Provisional",
+      "type": "boolean"
+    },
+    "slug": {
+      "title": "Slug",
+      "type": "string"
+    },
+    "selection": {
+      "$ref": "#/$defs/Selection"
+    },
+    "model": {
+      "$ref": "#/$defs/ModelInfo"
+    },
+    "circuit": {
+      "$ref": "#/$defs/CircuitInfo"
+    },
+    "original": {
+      "$ref": "#/$defs/OriginalCircuit"
+    },
+    "canonical": {
+      "$ref": "#/$defs/CanonicalCircuit"
+    },
+    "graph": {
+      "$ref": "#/$defs/Graph"
+    },
+    "trace": {
+      "$ref": "#/$defs/Trace"
+    },
+    "prediction": {
+      "$ref": "#/$defs/Prediction"
+    },
+    "explanation": {
+      "$ref": "#/$defs/Explanation"
+    },
+    "unknown": {
+      "$ref": "#/$defs/UnknownCheck"
+    }
+  },
+  "required": [
+    "provisional",
+    "slug",
+    "selection",
+    "model",
+    "circuit",
+    "original",
+    "canonical",
+    "graph",
+    "trace",
+    "prediction",
+    "explanation",
+    "unknown"
+  ],
+  "title": "CircuitExport",
+  "type": "object"
+}

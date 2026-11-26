@@ -354,7 +354,8 @@ def test_search_configurations(repo_root: Path, tmp_path: Path) -> None:
         },
     )
     assert model["cabezas_atencion"] == 4 and model["capas"] == 8
-    assert training.epocas == 150 and training.evaluar_cada == 10 and training.precision_mixta
+    assert training.epocas == 150 and training.evaluar_cada == 10
+    assert not training.precision_mixta  # float32 since phase 12 (DECISIONES)
     assert load_search_config(folder / "gnn_prueba_reintentos.yaml").blocks == (0, 1)
     broken = (folder / "gnn_busqueda.yaml").read_text().replace("  dropout:", "  goteo:")
     (tmp_path / "roto.yaml").write_text(broken)

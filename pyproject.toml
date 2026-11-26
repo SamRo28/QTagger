@@ -29,6 +29,9 @@ dependencies = [
     "typer",
     "matplotlib",  # notebooks and figures
     "pylatexenc",  # Qiskit "mpl" circuit drawer
+    "scipy",  # Procrustes alignment of the demo traces
+    "pydantic>=2.14,<3",  # data contract of QTaggerDemo (esquema/demo/)
+    "jsonschema",  # validation of the demo export against its JSON Schema
 ]
 
 [project.optional-dependencies]
