@@ -1,0 +1,31 @@
+# Phase 11b: the phase 11 reference (gnn_referencia.yaml) retrained for the QTaggerDemo
+# provisional export, in its own MLflow experiment. Model, training and seed are those of
+# gnn_referencia.yaml (a test checks it), so the run has the same fingerprint. Trained on
+# block 0 of the cross-validation over train + val of `aleatorio`; never the test set.
+
+nombre: demo_referencia
+experimento_mlflow: demo_provisional
+semilla: 42
+
+modelo:                                # GNNConfig (src/qcclass/modelos/gnn.py)
+  tipo_capa: gine                      # gine | gatv2
+  dim: 64
+  capas: 3
+  dropout: 0.0
+  nodo_virtual: false
+  agregacion: media_max                # media_max | atencion
+  jumping_knowledge: true
+  cabezas_atencion: 4                  # gatv2 only
+
+entrenamiento:                         # TrainingSettings (src/qcclass/entrenamiento/gnn.py)
+  epocas: 100
+  tasa_aprendizaje: 1.0e-3             # AdamW, linear warm-up then cosine to 0
+  regularizacion_pesos: 1.0e-4
+  lambda_familia: 1.0
+  calentamiento: 0.05                  # fraction of the epochs
+  presupuesto_nodos: 100000            # nodes per batch
+  precision_mixta: true                # CUDA only; see comprobar-precision-mixta
+  tipo_precision_mixta: bfloat16   # float16 overflowed (NaN) in the first search trial
+  variante_aristas: completo           # completo | solo_adelante | sin_direccion | sin_rol | sin_angulos
+  evaluar_cada: 1                      # held-out macro F1 every N epochs (and at the end)
+

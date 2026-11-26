@@ -237,3 +237,54 @@ def test_export_demo_needs_provisional() -> None:
     result = CliRunner().invoke(app, ["exportar-demo"])
     assert result.exit_code == 1
     assert "--provisional" in result.output
+
+
+class _Linear(torch.nn.Module):
+    """``logit_c = sum_nodes x . w_c``: integrated gradients are exactly ``(x - x') . w``."""
+
+    def __init__(self, weights: torch.Tensor) -> None:
+        super().__init__()
+        self.weights = torch.nn.Parameter(weights)
+
+    def forward(self, batch, trazas: bool = False):  # noqa: ANN001, ANN201
+        from torch_geometric.utils import scatter
+
+        from qcclass.modelos.gnn import GNNOutput
+
+        per_node = batch.x @ self.weights
+        logits = scatter(per_node, batch.batch, dim=0, dim_size=batch.num_graphs, reduce="sum")
+        return GNNOutput(logits, torch.zeros(batch.num_graphs, len(FAMILIES)))
+
+
+@pytest.mark.parametrize("steps", [1, 7, 64])
+def test_integrated_gradients_exact_on_a_linear_model(tmp_path: Path, steps: int) -> None:
+    torch.manual_seed(3)
+    weights = torch.randn(len(NODE_FEATURES), len(CLASSES))
+    trained = replace(_trained(tmp_path), model=_Linear(weights).eval())
+    circuit = blocks_of(_blocky_circuit()).circuit
+    graph = graph_input(gate_sequence(circuit), circuit.num_qubits, trained.transform)
+    for target in range(len(CLASSES)):
+        importance, error = integrated_gradients(trained, graph, target, steps=steps)
+        expected = (graph.x - torch.zeros_like(graph.x)) @ weights[:, target]  # baseline x' = 0
+        np.testing.assert_allclose(importance, expected.numpy(), rtol=1e-5, atol=1e-6)
+        assert error < 1e-5
+
+
+def test_demo_reference_is_the_phase_11_reference(repo_root: Path) -> None:
+    from qcclass.entrenamiento.gnn import hyperparameter_fingerprint, run_identity
+    from qcclass.entrenamiento.gnn_experimento import load_gnn_experiment
+
+    folder = repo_root / "configs" / "experimentos"
+    phase11 = load_gnn_experiment(folder / "gnn_referencia.yaml")
+    demo = load_gnn_experiment(folder / "demo_referencia.yaml")
+    assert demo.mlflow_experiment not in ("gnn_fase11", "gnn_aleatorio_v1")
+    assert (demo.model, demo.training, demo.seed) == (phase11.model, phase11.training, phase11.seed)
+    identities = [
+        run_identity(e.model, e.training, e.seed, device="cpu", micro_nodes=None)
+        for e in (phase11, demo)
+    ]
+    assert hyperparameter_fingerprint(identities[0]) == hyperparameter_fingerprint(identities[1])
+    config = load_demo_config(folder / "demo_provisional.yaml", repo_root)
+    assert config.experiment.name == "demo_referencia.yaml"
+    assert config.family_algorithms == {"oraculos": ("dj", "bv")}
+    assert (config.readable_qubits, config.target_gates) == (10, 120)

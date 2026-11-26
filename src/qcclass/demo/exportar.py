@@ -93,6 +93,11 @@ class DemoExportConfig:
     main_qubits: tuple[int, ...]
     min_gates: int
     max_gates: int
+    readable_qubits: int
+    readable_min_gates: int
+    readable_max_gates: int
+    target_gates: int
+    family_algorithms: dict[str, tuple[str, ...]]
     span: bool
     random_qubits: int
     random_depth: int
@@ -125,8 +130,16 @@ def load_demo_config(path: Path | str, root: Path) -> DemoExportConfig:
             run_directory=root / directory if directory else None,
             main_algorithm=str(gallery["principal"]["algoritmo"]),
             main_qubits=tuple(int(q) for q in gallery["principal"]["cubits"]),
-            min_gates=int(gallery["min_puertas"]),
-            max_gates=int(gallery["max_puertas"]),
+            min_gates=int(gallery["candidatos"]["min_puertas"]),
+            max_gates=int(gallery["candidatos"]["max_puertas"]),
+            readable_qubits=int(gallery["legibilidad"]["max_cubits"]),
+            readable_min_gates=int(gallery["legibilidad"]["min_puertas"]),
+            readable_max_gates=int(gallery["legibilidad"]["max_puertas"]),
+            target_gates=int(gallery["legibilidad"]["puertas_objetivo"]),
+            family_algorithms={
+                str(f): tuple(str(a) for a in names)
+                for f, names in (gallery.get("algoritmos_por_familia") or {}).items()
+            },
             span=bool(gallery.get("columnas_por_rango", True)),
             random_qubits=int(random.get("cubits", 4)),
             random_depth=int(random.get("profundidad", 8)),
@@ -249,12 +262,22 @@ def choose_gallery(
 ) -> tuple[list[Choice], list[str]]:
     """Gallery circuits and the criteria used (see the module docstring)."""
     rows = _candidates(config, view, trained, demo)
-    trainable = rows[rows["clase"] != ""]
-    size = f"between {demo.min_gates} and {demo.max_gates} F2 gates"
+    reserved = set(view.pool.vocabulary.reserved) | set(view.pool.vocabulary.unknown_without_family)
+    trainable = rows[(rows["clase"] != "") & ~rows["algoritmo"].isin(reserved)]
+    readable = trainable[
+        (trainable["n_qubits"].astype(int) <= demo.readable_qubits)
+        & (trainable["n"] >= demo.readable_min_gates)
+        & (trainable["n"] <= demo.readable_max_gates)
+    ]
+    limits = (
+        f"at most {demo.readable_qubits} qubits and {demo.readable_min_gates}-"
+        f"{demo.readable_max_gates} F2 gates, the closest to {demo.target_gates} gates"
+    )
     criteria = [
         f"Every dataset circuit comes from a group of the held-out block {demo.block}, never "
         "seen by the model, and is its 'etiquetada' variant (F2 decomposed block by block).",
-        f"Circuits with {size}; ties broken by fewer gates, then by id.",
+        f"Candidates: a trainable class (never a reserved, unknown or family-only algorithm) "
+        f"and between {demo.min_gates} and {demo.max_gates} F2 gates.",
     ]
     chosen: list[Choice] = []
 
@@ -263,48 +286,83 @@ def choose_gallery(
         slug = f"{role}_{row['algoritmo']}_{row['group_id']}"
         chosen.append(Choice(slug, role, reason, row.to_dict(), raw))
 
-    def pick(options: pd.DataFrame, what: str) -> tuple[pd.Series, str] | None:
-        """Smallest correctly predicted option; the smallest one if none is correct."""
+    def by_target(options: pd.DataFrame) -> pd.DataFrame:
+        distance = (options["n"] - demo.target_gates).abs()
+        return options.assign(_d=distance).sort_values(["_d", "id"]).drop(columns="_d")
+
+    def pick(options: pd.DataFrame, fallback: pd.DataFrame, what: str):
+        """Readable option closest to the target, correctly predicted first; without a
+        readable option, the same among ``fallback`` (readability limits ignored)."""
+        note = ""
+        if options.empty:
+            logger.warning("no readable candidate for %s: fallback", what)
+            options, note = fallback, " (no readable candidate: limits ignored)"
         if options.empty:
             logger.warning("no candidate for %s", what)
             return None
+        options = by_target(options)
         correct = options[options["correct"]]
         if correct.empty:
-            logger.warning("no correctly predicted candidate for %s", what)
-            return options.iloc[0], f"smallest {what} (no candidate predicted correctly)"
-        return correct.iloc[0], f"smallest correctly predicted {what}"
+            return options.iloc[0], f"{what} closest to {demo.target_gates} gates{note}, " + (
+                "none predicted correctly"
+            )
+        return correct.iloc[
+            0
+        ], f"correctly predicted {what} closest to {demo.target_gates} gates{note}"
 
-    main = pick(
-        trainable[
-            (trainable["algoritmo"] == demo.main_algorithm)
-            & trainable["n_qubits"].astype(int).isin(demo.main_qubits)
-        ],
-        f"{demo.main_algorithm} with {list(demo.main_qubits)} qubits",
-    )
-    if main is None:
+    main = trainable[
+        (trainable["algoritmo"] == demo.main_algorithm)
+        & trainable["n_qubits"].astype(int).isin(demo.main_qubits)
+    ].sort_values(["n", "id"])
+    if main.empty:
         raise ValueError(f"no {demo.main_algorithm} with {demo.main_qubits} qubits")
-    add(*main[:1], "main", main[1])
+    main_correct = main[main["correct"]]
+    row = (main_correct if len(main_correct) else main).iloc[0]
+    add(
+        row,
+        "main",
+        f"smallest {demo.main_algorithm} with {list(demo.main_qubits)} qubits"
+        + (" predicted correctly" if len(main_correct) else " (none predicted correctly)"),
+    )
     criteria.append(
         f"Main: the smallest {demo.main_algorithm} with {list(demo.main_qubits)} qubits "
         "predicted correctly (the smallest one if none is)."
     )
     for family in view.pool.class_names("familia"):
-        options = trainable[
-            (trainable["familia"] == family) & (trainable["algoritmo"] != demo.main_algorithm)
-        ]
-        if chosen_family := pick(options, f"circuit of {family}"):
-            add(chosen_family[0], "family", chosen_family[1])
+        allowed = demo.family_algorithms.get(family)
+
+        def of_family(table: pd.DataFrame, family: str = family, allowed=allowed) -> pd.DataFrame:
+            keep = (table["familia"] == family) & (table["algoritmo"] != demo.main_algorithm)
+            if allowed:
+                keep &= table["algoritmo"].isin(allowed)
+            return table[keep]
+
+        what = f"circuit of {family}" + (f" ({', '.join(allowed)})" if allowed else "")
+        if found := pick(of_family(readable), of_family(trainable), what):
+            add(found[0], "family", found[1])
+    restricted = "; ".join(f"{f}: {', '.join(a)}" for f, a in demo.family_algorithms.items())
     criteria.append(
-        f"One per family: the smallest correctly predicted circuit with a trainable class, "
-        f"not {demo.main_algorithm} (already the main one); the smallest one if none is "
-        "predicted correctly."
+        f"One per family, readable: {limits} (ties by id), correctly predicted first; not "
+        f"{demo.main_algorithm} (the main one)"
+        + (f"; algorithms allowed: {restricted}" if restricted else "")
+        + f". Without a readable candidate, the candidate of the family closest to "
+        f"{demo.target_gates} gates."
     )
-    errors = trainable[~trainable["correct"]].sort_values(["p_pred", "id"], ascending=[False, True])
+
+    def wrong(table: pd.DataFrame) -> pd.DataFrame:
+        return table[~table["correct"]].sort_values(["p_pred", "id"], ascending=[False, True])
+
+    errors, note = wrong(readable), ""
+    if errors.empty:
+        errors, note = wrong(trainable), " (no readable mistake: limits ignored)"
     if errors.empty:
         criteria.append("Error: none of the candidates is mispredicted (no error circuit).")
     else:
-        add(errors.iloc[0], "error", "the most confident mistake of the network")
-        criteria.append("Error: the mispredicted candidate with the highest wrong probability.")
+        add(errors.iloc[0], "error", f"the most confident readable mistake of the network{note}")
+        criteria.append(
+            "Error: the readable mispredicted candidate with the highest wrong probability "
+            "(any candidate if none is readable)."
+        )
     seed = derive_seed(demo.seed, "demo", "aleatorio")
     generated = random_circuit(
         demo.random_qubits,
